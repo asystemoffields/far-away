@@ -16,6 +16,7 @@ import {
   ArrowHelper,
   BufferAttribute,
   BufferGeometry,
+  CanvasTexture,
   Color,
   DirectionalLight,
   DoubleSide,
@@ -25,6 +26,8 @@ import {
   type Object3D,
   PerspectiveCamera,
   Scene,
+  Sprite,
+  SpriteMaterial,
   Vector3,
   WebGLRenderer,
 } from 'three';
@@ -126,7 +129,8 @@ export function buildScene(
 
   // Spin-axis arrow — anchored at origin, oriented along ecliptic pole.
   // Pole is fixed by the model; the arrow updates only if setSpin() is
-  // called with a different pole direction.
+  // called with a different pole direction. depthTest=false on the
+  // arrow's materials so it never disappears behind the asteroid.
   let currentSpin = model.spin;
   const initialPole = poleDirection(currentSpin);
   const arrow = new ArrowHelper(
@@ -137,7 +141,23 @@ export function buildScene(
     0.25,
     0.12,
   );
+  arrow.traverse((o: Object3D) => {
+    const m = (o as { material?: { depthTest?: boolean; depthWrite?: boolean; transparent?: boolean } }).material;
+    if (m) {
+      m.depthTest = false;
+      m.depthWrite = false;
+      m.transparent = true;
+    }
+  });
+  arrow.renderOrder = 999;
   scene.add(arrow);
+
+  // "pole" label as a sprite, anchored at the arrow tip. Sprite billboards
+  // always face the camera, so the text stays legible regardless of orbit.
+  const poleLabel = makeTextSprite('pole', '#ffc14f');
+  poleLabel.position.set(initialPole.x * 1.75, initialPole.y * 1.75, initialPole.z * 1.75);
+  poleLabel.renderOrder = 1000;
+  scene.add(poleLabel);
 
   // Camera. Distance picked so the unit-radius body fills ~50% of the
   // smaller viewport dimension at any rotation.
@@ -320,6 +340,7 @@ export function buildScene(
       currentSpin = spin;
       const p = poleDirection(spin);
       arrow.setDirection(new Vector3(p.x, p.y, p.z));
+      poleLabel.position.set(p.x * 1.75, p.y * 1.75, p.z * 1.75);
       requestRender();
     },
     resize(w, h): void {
@@ -346,6 +367,8 @@ export function buildScene(
         const am = (o as { material?: { dispose: () => void } }).material;
         if (am && typeof am.dispose === 'function') am.dispose();
       });
+      (poleLabel.material as SpriteMaterial).map?.dispose();
+      (poleLabel.material as SpriteMaterial).dispose();
       renderer.dispose();
       // forceContextLoss explicitly evicts the WebGL context. Without it,
       // remounting many widgets on the same page eventually trips the
@@ -357,4 +380,37 @@ export function buildScene(
     },
     requestRender,
   };
+}
+
+/** Build a billboarded text label rendered via a canvas-backed sprite.
+ *  The label always faces the camera and stays a constant on-screen size
+ *  via the sprite's intrinsic scale. */
+function makeTextSprite(text: string, colour: string): Sprite {
+  const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+  const fontSize = 64; // canvas-space; sprite scale handles world-space size
+  const canvas = document.createElement('canvas');
+  canvas.width = 256 * dpr;
+  canvas.height = 96 * dpr;
+  const ctx = canvas.getContext('2d')!;
+  ctx.scale(dpr, dpr);
+  ctx.font = `600 ${fontSize / dpr}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  // Soft shadow for legibility against any sky.
+  ctx.shadowColor = 'rgba(0,0,0,0.9)';
+  ctx.shadowBlur = 8;
+  ctx.fillStyle = colour;
+  ctx.fillText(text, 128, 48);
+  const tex = new CanvasTexture(canvas);
+  tex.minFilter = tex.magFilter = 1006; // THREE.LinearFilter (avoids importing it just for one constant)
+  tex.needsUpdate = true;
+  const mat = new SpriteMaterial({
+    map: tex,
+    depthTest: false,
+    depthWrite: false,
+    transparent: true,
+  });
+  const sprite = new Sprite(mat);
+  sprite.scale.set(0.55, 0.21, 1); // tuned so "pole" is ~18-24 px at default zoom
+  return sprite;
 }

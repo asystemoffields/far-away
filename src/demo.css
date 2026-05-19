@@ -24,12 +24,15 @@ html, body {
 #app {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* min-height keeps the layout fitting tall viewports; allowing
+     content to extend past the viewport on short ones (landscape
+     phones, embedded iframes) lets the user scroll to the widget
+     controls rather than squeezing everything into nothing. */
+  min-height: 100%;
   padding: 18px 22px 14px;
   gap: 14px;
   max-width: 1480px;
   margin: 0 auto;
-  min-height: 0;
 }
 
 .demo-header h1 {
@@ -72,6 +75,22 @@ html, body {
 }
 
 @media (max-width: 720px) {
+  #app {
+    padding: 12px 12px 8px;
+    gap: 10px;
+  }
+  .demo-header h1 {
+    font-size: 18px;
+  }
+  .demo-tagline {
+    font-size: 12.5px;
+    /* Long tagline eats too much vertical space on phones; truncate to
+       3 lines to keep the widget itself above the fold. */
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
   .demo-controls {
     flex-wrap: wrap;
     align-items: flex-start;
@@ -91,7 +110,11 @@ html, body {
 
 .demo-host {
   flex: 1 1 0;
-  min-height: 0;
+  /* Minimum keeps the widget large enough to be usable on short
+     viewports (landscape phones, narrow embeds). The page scrolls
+     vertically when the demo header + this minimum exceed the
+     viewport, which is the right call on a phone in landscape. */
+  min-height: 520px;
   border: 1px solid #1c212b;
   border-radius: 8px;
   background: #0b0d12;

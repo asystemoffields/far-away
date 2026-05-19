@@ -175,9 +175,12 @@ export function mount(
   updateJdReadout(currentJd);
 
   // Footer for citation / residual.
+  // Footer and controls live at root level (not inside plotCol) so the
+  // stacked mobile layout doesn't squeeze them into the bottom grid cell.
+  // They render as full-width rows under the scene+plot split on every
+  // viewport.
   const footer = document.createElement('div');
   footer.className = 'dv-footer';
-  plotCol.appendChild(footer);
   const updateFooter = (): void => {
     const obs = currentLc.points;
     const rangeMean = obs.length > 0
@@ -320,7 +323,6 @@ export function mount(
   if (opts.showControls !== false) {
     const controls = document.createElement('div');
     controls.className = 'dv-controls';
-    plotCol.appendChild(controls);
 
     curveSelect = document.createElement('select');
     curveSelect.className = 'dv-select';
@@ -434,7 +436,14 @@ export function mount(
     });
     cLabel.appendChild(cInput);
     controls.appendChild(cLabel);
+    // Now that the controls strip is populated, attach it after the
+    // split so it always renders as a full-width row — including on
+    // mobile where the split stacks vertically.
+    root.appendChild(controls);
   }
+  // Footer is always attached, even when controls are suppressed via
+  // opts.showControls: false.
+  root.appendChild(footer);
 
   if (opts.initialViewMode === 'earth') scene.setViewMode('earth');
 

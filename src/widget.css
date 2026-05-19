@@ -62,6 +62,9 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
   flex: 1 1 auto;
   min-height: 0;
+  /* Critical: the split must absorb available height. Controls + footer
+     are siblings at root level (not inside this grid), so they stay
+     visible no matter how the panes inside resize. */
 }
 
 .dv-scene-col,
@@ -118,16 +121,18 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 8px 14px;
   padding: 8px 12px;
   border-top: 1px solid #1c212b;
   font-size: 12px;
+  flex-shrink: 0; /* never compress the controls bar */
 }
 .dv-labeled {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   color: #9aa3b2;
+  flex-wrap: wrap;
 }
 .dv-select {
   background: #161a22;
@@ -136,6 +141,10 @@
   padding: 4px 8px;
   border-radius: 4px;
   font: inherit;
+  /* On narrow viewports the LC list dropdown's longest option could
+     otherwise force a 540 px+ minimum width on the whole strip. */
+  max-width: 100%;
+  min-width: 0;
 }
 .dv-btn {
   background: #1b2230;
@@ -159,12 +168,42 @@
 }
 
 @media (max-width: 720px) {
+  /* On mobile we drop ALL pane minimums. The controls strip + footer
+     are guaranteed visible because they live at root level with
+     flex-shrink:0; the panes share the remaining space evenly down to
+     zero. If the user wants a bigger 3D view they can scroll the host
+     page (or rotate to landscape). The previous minmax(220px,1fr) was
+     forcing 440px of panes inside ~530px of widget, pushing the
+     controls below the viewport. */
   .dv-split {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(280px, 1fr) minmax(280px, 1fr);
+    grid-template-rows: 1fr 1fr;
   }
   .dv-scene-col {
     border-right: none;
     border-bottom: 1px solid #1c212b;
+  }
+  .dv-header {
+    padding: 8px 10px;
+  }
+  .dv-title { font-size: 14px; }
+  .dv-meta { font-size: 11px; }
+  .dv-controls {
+    padding: 8px 10px;
+    gap: 6px 12px;
+  }
+  .dv-controls .dv-select,
+  .dv-controls .dv-labeled,
+  .dv-controls .dv-range-label {
+    /* Each control gets its own row on phone screens — comfortable for
+       touch, no horizontal scrolling. */
+    flex: 1 1 100%;
+  }
+  .dv-controls .dv-btn {
+    flex: 0 0 auto;
+  }
+  .dv-controls .dv-range-label input[type="range"] {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 }

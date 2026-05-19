@@ -325,7 +325,7 @@ export function buildScene(
   const dom = renderer.domElement;
   // Improve accessibility / mouse handling: the canvas is interactive.
   dom.setAttribute('role', 'img');
-  dom.setAttribute('aria-label', 'Asteroid 3D shape. Drag to rotate. Hold Shift and scroll to zoom.');
+  dom.setAttribute('aria-label', 'Asteroid 3D shape. Drag to rotate, pinch or Shift-scroll to zoom.');
   dom.tabIndex = 0;
   dom.style.touchAction = 'none'; // suppress browser pinch/scroll-pan inside the canvas
   dom.style.cursor = 'grab';      // signal that the canvas is draggable
@@ -340,62 +340,107 @@ export function buildScene(
     listeners.push([type, fn as EventListener, opts]);
   };
 
-  let dragging = false;
+  // Earth-view's camera is anchored to the Earth direction, so a rotate
+  // gesture has no degrees of freedom there. Rather than ignore the
+  // gesture (which read as "unresponsive"), the first actual rotation
+  // seeds the free-orbit state from the current camera and switches in.
+  // Pinch-zoom does NOT switch — you can zoom while keeping Earth view.
+  const switchToFreeIfEarth = (): void => {
+    if (viewMode !== 'earth') return;
+    syncCameraStateToCurrentCamera();
+    viewMode = 'free';
+    opts.onViewModeChange?.('free');
+  };
+  // Apply a relative zoom multiplier (shared by wheel + pinch). The
+  // factor stacks on top of the aspect-aware auto-fit distance so it
+  // survives resizes.
+  const applyZoomFactor = (factor: number): void => {
+    cameraState.zoomFactor = Math.max(0.25, Math.min(3.5, cameraState.zoomFactor * factor));
+    applyZoom();
+    if (viewMode === 'free') updateCameraFromState();
+    else placeCameraForEarthView();
+    requestRender();
+  };
+
+  // Pointer bookkeeping for multi-touch. One active pointer = rotate;
+  // two = pinch-zoom (the rotate branch is suppressed while pinching).
+  const pointers = new Map<number, { x: number; y: number }>();
+  let pinchPrevDist = 0;
   let lastX = 0, lastY = 0;
+  const pinchDistance = (): number => {
+    const it = pointers.values();
+    const a = it.next().value;
+    const b = it.next().value;
+    if (!a || !b) return 0;
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+
   on('pointerdown', (e: PointerEvent) => {
-    // In earth-view mode the camera position is anchored to the Earth
-    // direction, so a drag has no degrees of freedom; rather than ignore
-    // the gesture (which led users to think the viewer wasn't
-    // responsive), seed the free-orbit state from the current camera
-    // position and switch into free orbit. The dropdown follows along
-    // via the onViewModeChange callback so the UI stays consistent.
-    if (viewMode === 'earth') {
-      syncCameraStateToCurrentCamera();
-      viewMode = 'free';
-      opts.onViewModeChange?.('free');
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // setPointerCapture can throw (InvalidPointerId) for pointers that
+    // aren't currently active; guard so a stray event can't break input.
+    try { dom.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    if (pointers.size === 1) {
+      lastX = e.clientX; lastY = e.clientY;
+      dom.style.cursor = 'grabbing';
+    } else if (pointers.size === 2) {
+      pinchPrevDist = pinchDistance();
     }
-    dragging = true;
-    lastX = e.clientX; lastY = e.clientY;
-    dom.style.cursor = 'grabbing';
-    dom.setPointerCapture(e.pointerId);
   });
   on('pointermove', (e: PointerEvent) => {
-    if (!dragging) return;
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointers.size >= 2) {
+      // Two-finger pinch → zoom. Fingers apart (distance grows) zooms in.
+      const d = pinchDistance();
+      if (pinchPrevDist > 0 && d > 0) {
+        applyZoomFactor(pinchPrevDist / d);
+      }
+      pinchPrevDist = d;
+      return;
+    }
+
+    // Single pointer → rotate. Horizontal drag spins around the pole
+    // (azim); vertical drag tilts toward/away from it. Switch out of
+    // earth-view only on a genuine rotation (not a stationary touch),
+    // so a clean two-finger pinch never trips the mode switch.
     const dx = e.clientX - lastX;
     const dy = e.clientY - lastY;
+    if (dx === 0 && dy === 0) return;
+    switchToFreeIfEarth();
     lastX = e.clientX; lastY = e.clientY;
-    // Horizontal drag rotates around the spin axis (azim); vertical drag
-    // tilts toward/away from the pole. Clamp tilt away from the
-    // singularity at pole-on (≈ 5° margin).
     cameraState.azim -= dx * 0.008;
     cameraState.tilt += dy * 0.008;
     cameraState.tilt = Math.max(0.1, Math.min(Math.PI - 0.1, cameraState.tilt));
     updateCameraFromState();
     requestRender();
   });
-  const endDrag = (e: PointerEvent): void => {
-    dragging = false;
-    dom.style.cursor = 'grab';
-    if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId);
+  const endPointer = (e: PointerEvent): void => {
+    pointers.delete(e.pointerId);
+    try {
+      if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId);
+    } catch { /* ignore */ }
+    if (pointers.size < 2) pinchPrevDist = 0;
+    // Dropping from two fingers to one: re-seed the rotate baseline from
+    // the surviving pointer so the view doesn't jump.
+    if (pointers.size === 1) {
+      const remaining = pointers.values().next().value;
+      if (remaining) { lastX = remaining.x; lastY = remaining.y; }
+    }
+    if (pointers.size === 0) dom.style.cursor = 'grab';
   };
-  on('pointerup', endDrag);
-  on('pointercancel', endDrag);
+  on('pointerup', endPointer);
+  on('pointercancel', endPointer);
 
   // Wheel-zoom requires holding Shift, so plain scroll on a page that
   // embeds the widget still scrolls the page. (Audit P1: hijacking page
   // scroll over the widget is a real obstacle to embedding.) Touch
-  // pinch-zoom would be a separate gesture handler — out of scope here.
+  // devices get pinch-zoom via the two-pointer path above.
   on('wheel', (e: WheelEvent) => {
     if (!e.shiftKey) return; // let the page scroll
     e.preventDefault();
-    // Zoom adjusts a relative factor on top of the auto-fit distance, so
-    // it survives resizes (which recompute the fit baseline).
-    const factor = Math.exp(e.deltaY * 0.001);
-    cameraState.zoomFactor = Math.max(0.25, Math.min(3.5, cameraState.zoomFactor * factor));
-    applyZoom();
-    if (viewMode === 'free') updateCameraFromState();
-    else placeCameraForEarthView();
-    requestRender();
+    applyZoomFactor(Math.exp(e.deltaY * 0.001));
   }, { passive: false });
 
   let rafId = 0;

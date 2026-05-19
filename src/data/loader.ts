@@ -128,12 +128,13 @@ export function ellipsoidShape(a: number, b: number, c: number, subdivisions = 1
  *  curve is dead-flat over noisy observations. Those LC files are still
  *  vendored under public/sample-data/ for parser-format reference; add
  *  them back to the demo catalog once a real shape file is paired. */
+const BASE = (import.meta.env?.BASE_URL ?? '/').replace(/\/$/, '');
 export const DEMO_CATALOG: CatalogEntry[] = [
   {
     id: 'hermione',
     name: '(121) Hermione',
-    shapeUrl: '/sample-data/hermione/shape_damit_155.txt',
-    lcUrl: '/sample-data/hermione/herm.lc',
+    shapeUrl: `${BASE}/sample-data/hermione/shape_damit_155.txt`,
+    lcUrl: `${BASE}/sample-data/hermione/herm.lc`,
     spin: {
       // Marchis et al. 2009 / Hanuš et al. 2017 — Hermione has a known
       // pole ambiguity. We seed the optimiser with the (293°, −34°)

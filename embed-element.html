@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>&lt;damit-viewer&gt; — Web Component embed</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; padding: 0; background: #0b0d12; color: #d6dae3; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+      main { max-width: 1080px; margin: 0 auto; padding: 22px 26px 60px; }
+      h1 { font-size: 22px; margin: 0 0 8px; font-weight: 600; }
+      h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.08em; margin: 28px 0 10px; color: #9aa3b2; font-weight: 600; }
+      p { line-height: 1.55; color: #c1c7d3; }
+      a { color: #ffc14f; }
+      pre {
+        background: #11141b;
+        border: 1px solid #1c212b;
+        border-radius: 8px;
+        padding: 14px 16px;
+        overflow-x: auto;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12.5px;
+        line-height: 1.55;
+      }
+      code { color: #d6dae3; }
+      .k { color: #c792ea; }
+      .s { color: #c3e88d; }
+      .c { color: #6b7280; font-style: italic; }
+      .t { color: #ffcb6b; }
+      .n { color: #f78c6c; }
+      damit-viewer {
+        display: block;
+        width: 100%;
+        height: 600px;
+        margin-top: 6px;
+        border: 1px solid #1c212b;
+        border-radius: 8px;
+      }
+      .note { color: #9aa3b2; font-size: 13px; }
+      .grid { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>&lt;damit-viewer&gt; — Web Component embed</h1>
+      <p>
+        Same widget, different API: register the bundle once and use
+        <code>&lt;damit-viewer&gt;</code> as a plain HTML tag. Below are two
+        forms — by explicit URL (works today, no CORS to negotiate) and by
+        DAMIT model id (needs an Access-Control-Allow-Origin header on the
+        damit.cuni.cz responses, or a same-origin proxy).
+      </p>
+
+      <h2>Form 1 — explicit URLs (recommended for DAMIT pages)</h2>
+      <p>
+        The page that already serves the model file can pass its URL
+        directly. <em>This is the lowest-friction integration:</em> same
+        origin, no CORS, no URL-pattern assumptions. Use it inside a
+        server-rendered DAMIT page where the file paths are templated in.
+      </p>
+<pre><code><span class="t">&lt;script</span> <span class="k">src</span>=<span class="s">"./damit-viewer.umd.js"</span><span class="t">&gt;&lt;/script&gt;</span>
+<span class="t">&lt;damit-viewer</span>
+  <span class="k">shape-url</span>=<span class="s">"./sample-data/hermione/shape_damit_155.txt"</span>
+  <span class="k">lc-url</span>=<span class="s">"./sample-data/hermione/herm.lc"</span>
+  <span class="k">name</span>=<span class="s">"(121) Hermione"</span>
+  <span class="k">period-hours</span>=<span class="s">"5.55128"</span>
+  <span class="k">pole-lambda</span>=<span class="s">"293"</span>
+  <span class="k">pole-beta</span>=<span class="s">"-34"</span>
+  <span class="k">jd0</span>=<span class="s">"2443032.5"</span>
+  <span class="k">refit-pole</span>
+  <span class="k">initial-lc-index</span>=<span class="s">"9"</span>
+  <span class="k">initial-view</span>=<span class="s">"earth"</span>&gt;
+<span class="t">&lt;/damit-viewer&gt;</span></code></pre>
+
+      <damit-viewer
+        shape-url="./sample-data/hermione/shape_damit_155.txt"
+        lc-url="./sample-data/hermione/herm.lc"
+        name="(121) Hermione"
+        period-hours="5.55128"
+        pole-lambda="293"
+        pole-beta="-34"
+        jd0="2443032.5"
+        refit-pole
+        initial-lc-index="9"
+        initial-view="earth">
+      </damit-viewer>
+
+      <h2>Form 2 — by DAMIT model id</h2>
+      <p>
+        If you'd rather not template URLs, point the element at a DAMIT
+        instance by model id. The element will resolve
+        <code>https://damit.cuni.cz/asteroid_models/files/obj/&lt;id&gt;.obj</code>
+        for the shape and
+        <code>https://damit.cuni.cz/asteroid_models/lc/&lt;id&gt;.txt</code>
+        for the photometry. <strong>This currently requires DAMIT to set
+        <code>Access-Control-Allow-Origin: *</code></strong> on those
+        endpoints — without that header, the browser blocks the
+        cross-origin fetch. Until then, you can point
+        <code>damit-base</code> at your own proxy.
+      </p>
+<pre><code><span class="c">// In DAMIT, the shape file is keyed by model id; light curves are keyed by</span>
+<span class="c">// asteroid id (one asteroid can have multiple shape models).</span>
+<span class="t">&lt;script</span> <span class="k">src</span>=<span class="s">"./damit-viewer.umd.js"</span><span class="t">&gt;&lt;/script&gt;</span>
+<span class="t">&lt;damit-viewer</span>
+  <span class="k">model-id</span>=<span class="s">"103"</span>          <span class="c">// resolves /generated_files/open/AsteroidModel/103/shape.obj</span>
+  <span class="k">asteroid-id</span>=<span class="s">"102"</span>       <span class="c">// resolves /light_curves/exportAllForAsteroid/102/json</span>
+  <span class="k">name</span>=<span class="s">"(3) Juno"</span>
+  <span class="k">period-hours</span>=<span class="s">"7.21"</span>
+  <span class="k">refit-pole</span>&gt;
+<span class="t">&lt;/damit-viewer&gt;</span>
+
+<span class="c">// or with a CORS proxy you control:</span>
+<span class="t">&lt;damit-viewer</span>
+  <span class="k">model-id</span>=<span class="s">"103"</span> <span class="k">asteroid-id</span>=<span class="s">"102"</span>
+  <span class="k">damit-base</span>=<span class="s">"https://your-proxy.example/damit"</span>
+  ...&gt;<span class="t">&lt;/damit-viewer&gt;</span></code></pre>
+
+      <h2>Attribute reference</h2>
+<pre><code><span class="c">// Data source — choose one form</span>
+shape-url         <span class="c">// URL of a shape file (Wavefront OBJ or DAMIT shape.txt; auto-detected)</span>
+lc-url            <span class="c">// URL of a light-curve file (JSON or DAMIT lc.txt; auto-detected)</span>
+model-id          <span class="c">// DAMIT model id; combines with damit-base for the shape URL</span>
+asteroid-id       <span class="c">// DAMIT asteroid id; combines with damit-base for the LC URL</span>
+damit-base        <span class="c">// default https://damit.cuni.cz (override with a CORS proxy)</span>
+
+<span class="c">// Published spin parameters (auto-fit if refit-pole is set)</span>
+period-hours      <span class="c">// required when refit-pole is set</span>
+pole-lambda       <span class="c">// degrees, ecliptic J2000 (defaults 0)</span>
+pole-beta         <span class="c">// degrees (defaults 0)</span>
+jd0               <span class="c">// epoch of zero rotation phase (defaults to first LC obs)</span>
+
+<span class="c">// Behaviour</span>
+refit-pole        <span class="c">// presence-only attribute; runs the optimiser at load</span>
+lambert-c         <span class="c">// scattering coefficient (default 0.10)</span>
+name              <span class="c">// display name in the widget header</span>
+initial-lc-index  <span class="c">// integer; default 0</span>
+initial-view      <span class="c">// 'free' | 'earth'; default 'free'</span></code></pre>
+
+      <p class="note">
+        Same widget you've already seen — the Custom Element wrapper just
+        translates attributes into the imperative
+        <code>DAMITViewer.mount()</code> call and handles re-loading when
+        attributes change.
+      </p>
+
+      <p class="note">
+        Source: <a href="https://github.com/asystemoffields/far-away/blob/claude/space-exploration-app-DAWlh/src/web-component.ts">web-component.ts</a>
+        &middot;
+        Other forms: <a href="./embed.html">embed.html</a> (imperative API)
+        &middot;
+        <a href="./">live demo</a>
+      </p>
+    </main>
+
+    <script src="./damit-viewer.umd.js"></script>
+  </body>
+</html>

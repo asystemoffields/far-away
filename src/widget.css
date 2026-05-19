@@ -1,0 +1,148 @@
+/* Styles for the DAMIT-viewer widget. Scoped under .damit-viewer-host. */
+
+.damit-viewer-host {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 480px;
+  color: #e7eaf2;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: #0b0d12;
+  border-radius: 8px;
+  overflow: hidden;
+  contain: layout size; /* prevents child flex/grid sizing from pulling the host taller */
+}
+
+.damit-viewer-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.dv-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 10px 14px;
+  border-bottom: 1px solid #1c212b;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dv-title {
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+
+.dv-meta {
+  font-size: 12px;
+  color: #9aa3b2;
+  font-variant-numeric: tabular-nums;
+}
+
+.dv-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.dv-scene-col,
+.dv-plot-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.dv-scene-col {
+  border-right: 1px solid #1c212b;
+}
+
+.dv-scene {
+  flex: 1 1 0;
+  min-height: 0;
+  position: relative;
+}
+
+.dv-plot {
+  flex: 1 1 0;
+  min-height: 0;
+  position: relative;
+  padding: 8px 8px 0 8px;
+  overflow: hidden;
+}
+
+.dv-plot .u-wrap { background: transparent; }
+.dv-plot .u-title { color: #e7eaf2; }
+.dv-plot .u-legend { color: #c9d0db; font-size: 12px; }
+
+.dv-footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 12px;
+  font-size: 11px;
+  color: #8a93a4;
+  border-top: 1px solid #1c212b;
+  gap: 8px;
+}
+.dv-cite {
+  font-style: italic;
+}
+
+.dv-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 12px;
+  border-top: 1px solid #1c212b;
+  font-size: 12px;
+}
+.dv-labeled {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #9aa3b2;
+}
+.dv-select {
+  background: #161a22;
+  color: #e7eaf2;
+  border: 1px solid #2a313d;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font: inherit;
+}
+.dv-btn {
+  background: #1b2230;
+  color: #e7eaf2;
+  border: 1px solid #2a313d;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+}
+.dv-btn:hover { background: #232c3d; }
+.dv-range-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #9aa3b2;
+}
+.dv-range-label input[type="range"] {
+  vertical-align: middle;
+  width: 100px;
+}
+
+@media (max-width: 720px) {
+  .dv-split {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(280px, 1fr) minmax(280px, 1fr);
+  }
+  .dv-scene-col {
+    border-right: none;
+    border-bottom: 1px solid #1c212b;
+  }
+}

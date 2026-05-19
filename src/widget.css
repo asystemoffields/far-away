@@ -1,4 +1,19 @@
-/* Styles for the DAMIT-viewer widget. Scoped under .damit-viewer-host. */
+/* Styles for the DAMIT-viewer widget. Scoped under .damit-viewer-host.
+   The first block resets host-page styles on our widget descendants so a
+   hostile `button { background: yellow !important }` in the embedder's
+   CSS does not bleed through. We use `:where(...)` so the reset has zero
+   specificity — every per-class rule below trivially overrides it. */
+
+:where(.damit-viewer-host)
+  :where(.dv-btn, .dv-select, .dv-range-label, .dv-range-label input,
+         .dv-labeled, .dv-title, .dv-meta, .dv-footer, .dv-cite,
+         .dv-controls, .dv-header, .dv-scene, .dv-plot, .dv-scene-col,
+         .dv-plot-col, .dv-split, .damit-viewer-root) {
+  all: revert;
+  font-family: inherit;
+  color: inherit;
+  box-sizing: border-box;
+}
 
 .damit-viewer-host {
   display: block;

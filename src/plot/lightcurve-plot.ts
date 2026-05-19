@@ -44,7 +44,7 @@ export function buildPlot(
     legend: { show: true, live: true },
     axes: [
       {
-        label: 'hours since curve start (JD - JD0_curve) × 24',
+        label: 'time (hours from start of observing run)',
         labelSize: 18,
         stroke: '#c9d0db',
         grid: { stroke: '#22272e', width: 1 },
@@ -52,7 +52,8 @@ export function buildPlot(
       },
       {
         label: 'reduced intensity (arb. units)',
-        labelSize: 18,
+        labelSize: 22,
+        size: 50,
         stroke: '#c9d0db',
         grid: { stroke: '#22272e', width: 1 },
         ticks: { stroke: '#22272e' },
@@ -89,10 +90,11 @@ export function buildPlot(
           marker.style.position = 'absolute';
           marker.style.top = '0';
           marker.style.bottom = '0';
-          marker.style.width = '0';
-          marker.style.borderLeft = '1.5px solid #ff6b6b';
+          marker.style.width = '2px';
+          marker.style.background = '#ff6b6b';
           marker.style.pointerEvents = 'none';
           marker.style.zIndex = '5';
+          marker.setAttribute('aria-hidden', 'true');
           root.appendChild(marker);
           (u as unknown as { _jdMarker: HTMLDivElement })._jdMarker = marker;
           positionMarker(u, currentJd, jdOrigin);
@@ -162,7 +164,10 @@ function positionMarker(u: uPlot, jd: number, jdOrigin: number): void {
   const valX = (jd - jdOrigin) * 24;
   const xPx = u.valToPos(valX, 'x');
   if (Number.isFinite(xPx)) {
-    marker.style.left = `${xPx}px`;
+    // Translate by −1px so the 2px line is centred on the data point's x
+    // pixel — without this, at t = 0 the marker sat on top of the y-axis
+    // line and visually disappeared.
+    marker.style.left = `${xPx - 1}px`;
     marker.style.display = 'block';
   } else {
     marker.style.display = 'none';

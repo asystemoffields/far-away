@@ -158,11 +158,22 @@ export function parseLcTxt(text: string): LightCurve[] {
       if (t.length < 8) {
         throw new Error(`LC #${lc} row ${i + 1} has fewer than 8 columns.`);
       }
+      const cols = [Number(t[0]), Number(t[1]), Number(t[2]), Number(t[3]),
+                    Number(t[4]), Number(t[5]), Number(t[6]), Number(t[7])];
+      for (let k = 0; k < 8; k++) {
+        if (!Number.isFinite(cols[k])) {
+          throw new Error(
+            `LC #${lc} row ${i + 1} column ${k + 1}: non-finite value "${t[k]}". ` +
+            `Stray non-numeric tokens (e.g. comment markers without leading "#") silently produce NaN ` +
+            `intensities and corrupt downstream fits.`,
+          );
+        }
+      }
       points.push({
-        jd: Number(t[0]),
-        intensity: Number(t[1]),
-        sun: { x: Number(t[2]), y: Number(t[3]), z: Number(t[4]) },
-        earth: { x: Number(t[5]), y: Number(t[6]), z: Number(t[7]) },
+        jd: cols[0]!,
+        intensity: cols[1]!,
+        sun: { x: cols[2]!, y: cols[3]!, z: cols[4]! },
+        earth: { x: cols[5]!, y: cols[6]!, z: cols[7]! },
       });
     }
     out.push({ id: lc, calibrated: flag === 1, points });

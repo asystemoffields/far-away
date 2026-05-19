@@ -110,16 +110,18 @@ export function buildScene(
   bodyGroup.matrixAutoUpdate = false;
   scene.add(bodyGroup);
 
-  // Sun direction is set via setSunEarth(); the light is positioned far away
-  // along the Sun unit vector, never attenuated. Intensity is chosen so the
-  // illuminated side is well-exposed while the terminator stays visible.
-  const sunLight = new DirectionalLight(0xfff2dd, 2.8);
+  // Sun direction is set via setSunEarth(); the light is positioned far
+  // away along the Sun unit vector, never attenuated. Intensity is tuned so
+  // the illuminated face reaches near-white without saturating while the
+  // terminator stays sharp enough to read.
+  const sunLight = new DirectionalLight(0xfff2dd, 2.4);
   sunLight.position.set(10, 0, 0);
   scene.add(sunLight);
-  // Ambient is intentionally moderate (not just fill) so the dark side
-  // shows enough relief to read the shape, without washing out the
-  // terminator that conveys the lighting geometry.
-  const ambient = new AmbientLight(0x344055, 0.85);
+  // Slight warm ambient so the shadowed side is not pitch-black — relief
+  // on the dark side is readable, but the dark side is still clearly dark.
+  // The audit's "no relief on shadowed face" concern is the trade-off here:
+  // too much ambient erases the terminator that tells the science story.
+  const ambient = new AmbientLight(0x4a5364, 1.05);
   scene.add(ambient);
 
   // Spin-axis arrow — anchored at origin, oriented along ecliptic pole.
@@ -218,17 +220,35 @@ export function buildScene(
     bodyGroup.matrixWorldNeedsUpdate = true;
   };
 
-  // Input handlers (drag = rotate, wheel = zoom).
+  // Input handlers (drag = rotate, wheel = zoom). All listeners are
+  // tracked so dispose() can remove them; otherwise the canvas keeps the
+  // container alive even after the widget is unmounted.
   const dom = renderer.domElement;
+  // Improve accessibility / mouse handling: the canvas is interactive.
+  dom.setAttribute('role', 'img');
+  dom.setAttribute('aria-label', 'Asteroid 3D shape. Drag to rotate. Hold Shift and scroll to zoom.');
+  dom.tabIndex = 0;
+  dom.style.touchAction = 'none'; // suppress browser pinch/scroll-pan inside the canvas
+
+  const listeners: Array<[string, EventListener, AddEventListenerOptions | boolean | undefined]> = [];
+  const on = <K extends keyof HTMLElementEventMap>(
+    type: K,
+    fn: (ev: HTMLElementEventMap[K]) => void,
+    opts?: AddEventListenerOptions | boolean,
+  ): void => {
+    dom.addEventListener(type, fn as EventListener, opts);
+    listeners.push([type, fn as EventListener, opts]);
+  };
+
   let dragging = false;
   let lastX = 0, lastY = 0;
-  dom.addEventListener('pointerdown', (e: PointerEvent) => {
+  on('pointerdown', (e: PointerEvent) => {
     if (viewMode !== 'free') return;
     dragging = true;
     lastX = e.clientX; lastY = e.clientY;
     dom.setPointerCapture(e.pointerId);
   });
-  dom.addEventListener('pointermove', (e: PointerEvent) => {
+  on('pointermove', (e: PointerEvent) => {
     if (!dragging) return;
     const dx = e.clientX - lastX;
     const dy = e.clientY - lastY;
@@ -246,9 +266,15 @@ export function buildScene(
     dragging = false;
     if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId);
   };
-  dom.addEventListener('pointerup', endDrag);
-  dom.addEventListener('pointercancel', endDrag);
-  dom.addEventListener('wheel', (e: WheelEvent) => {
+  on('pointerup', endDrag);
+  on('pointercancel', endDrag);
+
+  // Wheel-zoom requires holding Shift, so plain scroll on a page that
+  // embeds the widget still scrolls the page. (Audit P1: hijacking page
+  // scroll over the widget is a real obstacle to embedding.) Touch
+  // pinch-zoom would be a separate gesture handler — out of scope here.
+  on('wheel', (e: WheelEvent) => {
+    if (!e.shiftKey) return; // let the page scroll
     e.preventDefault();
     const factor = Math.exp(e.deltaY * 0.001);
     cameraState.distance = Math.max(1.4, Math.min(20, cameraState.distance * factor));
@@ -304,20 +330,30 @@ export function buildScene(
     },
     dispose(): void {
       cancelAnimationFrame(rafId);
-      renderer.dispose();
+      // Remove every listener we registered. Browsers cap WebGL contexts
+      // (~16); without this the canvas keeps the container alive and
+      // long-running pages accumulate detached contexts.
+      for (const [type, fn, opts] of listeners) {
+        dom.removeEventListener(type, fn, opts as AddEventListenerOptions | undefined);
+      }
+      listeners.length = 0;
       geometry.dispose();
       material.dispose();
-      // Three's ArrowHelper owns inner geometries/materials; dispose its children.
+      // Three's ArrowHelper owns inner Line / Mesh; dispose their geom+material.
       arrow.traverse((o: Object3D) => {
-        const m = o as Mesh;
-        if ((m as { geometry?: BufferGeometry }).geometry) {
-          (m as { geometry: BufferGeometry }).geometry.dispose();
-        }
-        if ((m as { material?: { dispose: () => void } }).material) {
-          (m as { material: { dispose: () => void } }).material.dispose();
-        }
+        const ag = (o as { geometry?: { dispose: () => void } }).geometry;
+        if (ag && typeof ag.dispose === 'function') ag.dispose();
+        const am = (o as { material?: { dispose: () => void } }).material;
+        if (am && typeof am.dispose === 'function') am.dispose();
       });
-      container.removeChild(renderer.domElement);
+      renderer.dispose();
+      // forceContextLoss explicitly evicts the WebGL context. Without it,
+      // remounting many widgets on the same page eventually trips the
+      // browser's per-page context cap.
+      renderer.forceContextLoss();
+      if (renderer.domElement.parentNode === container) {
+        container.removeChild(renderer.domElement);
+      }
     },
     requestRender,
   };

@@ -89,16 +89,25 @@ export function buildScene(
 
   const scene = new Scene();
 
-  // Mesh in body frame, scaled to a canonical unit radius.
+  // Mesh in body frame, centred and scaled so the rotation-invariant
+  // bounding sphere has radius 1. We scale by the MAX vertex distance
+  // from the centroid (not the bbox half-diagonal) — that's the radius
+  // of the sphere the body sweeps out as it rotates, so the camera can
+  // frame it tightly with no guesswork and no clipping at any phase.
   const facets = buildFacetGeometry(model.shape);
   const bounds = shapeBounds(model.shape);
-  const scaleToUnit = bounds.radius > 0 ? 1 / bounds.radius : 1;
   const verts = new Float32Array(model.shape.vertices.length);
+  let maxR = 0;
   for (let i = 0; i < verts.length; i += 3) {
-    verts[i]     = (model.shape.vertices[i]!     - bounds.centre[0]) * scaleToUnit;
-    verts[i + 1] = (model.shape.vertices[i + 1]! - bounds.centre[1]) * scaleToUnit;
-    verts[i + 2] = (model.shape.vertices[i + 2]! - bounds.centre[2]) * scaleToUnit;
+    const x = model.shape.vertices[i]!     - bounds.centre[0];
+    const y = model.shape.vertices[i + 1]! - bounds.centre[1];
+    const z = model.shape.vertices[i + 2]! - bounds.centre[2];
+    verts[i] = x; verts[i + 1] = y; verts[i + 2] = z;
+    const r = Math.sqrt(x * x + y * y + z * z);
+    if (r > maxR) maxR = r;
   }
+  const scaleToUnit = maxR > 0 ? 1 / maxR : 1;
+  for (let i = 0; i < verts.length; i++) verts[i]! *= scaleToUnit;
   const geometry = new BufferGeometry();
   geometry.setAttribute('position', new BufferAttribute(verts, 3));
   geometry.setAttribute('normal', new BufferAttribute(facets.vertexNormals.slice(), 3));
@@ -142,13 +151,19 @@ export function buildScene(
   // arrow's materials so it never disappears behind the asteroid.
   let currentSpin = model.spin;
   const initialPole = poleDirection(currentSpin);
+  // Arrow length 1.3 (body bounding sphere is radius 1). With the tighter
+  // camera framing (body fills ~80% of the pane), a longer arrow would
+  // clip; in the default 3/4 view the pole is foreshortened so the tip +
+  // label stay on-screen.
+  const POLE_ARROW_LEN = 1.22;
+  const POLE_LABEL_R = 1.33;
   const arrow = new ArrowHelper(
     new Vector3(initialPole.x, initialPole.y, initialPole.z),
     new Vector3(0, 0, 0),
-    1.5,
+    POLE_ARROW_LEN,
     0xffc14f,
-    0.25,
-    0.12,
+    0.22,
+    0.11,
   );
   arrow.traverse((o: Object3D) => {
     const m = (o as { material?: { depthTest?: boolean; depthWrite?: boolean; transparent?: boolean } }).material;
@@ -164,27 +179,43 @@ export function buildScene(
   // "pole" label as a sprite, anchored at the arrow tip. Sprite billboards
   // always face the camera, so the text stays legible regardless of orbit.
   const poleLabel = makeTextSprite('pole', '#ffc14f');
-  poleLabel.position.set(initialPole.x * 1.75, initialPole.y * 1.75, initialPole.z * 1.75);
+  poleLabel.position.set(initialPole.x * POLE_LABEL_R, initialPole.y * POLE_LABEL_R, initialPole.z * POLE_LABEL_R);
   poleLabel.renderOrder = 1000;
   scene.add(poleLabel);
 
-  // Camera. Distance picked so the unit-radius body fills ~50% of the
-  // smaller viewport dimension at any rotation.
-  const CAMERA_DISTANCE = 6.5;
-  const camera = new PerspectiveCamera(35, width / Math.max(height, 1), 0.01, 100);
+  const V_FOV_DEG = 35;
+  const camera = new PerspectiveCamera(V_FOV_DEG, width / Math.max(height, 1), 0.01, 100);
   scene.add(camera);
+
+  // Distance that frames the unit-radius bounding sphere to fill
+  // FILL_FRACTION of the LIMITING viewport dimension. On a portrait or
+  // wide-short pane the limiting dimension is whichever has the smaller
+  // angular field of view, so the body stays large regardless of the
+  // pane's aspect ratio. (Previously a fixed distance of 6.5 left the
+  // asteroid tiny on phone-shaped panes.)
+  // 0.74 leaves headroom for the pole arrow + "pole" label (which, in
+  // view-from-Earth mode, point straight up where the vertical FOV is
+  // tightest). The body still fills ~74 % of the limiting dimension —
+  // far larger than the old fixed-distance framing (~49 %).
+  const FILL_FRACTION = 0.74;
+  const fitDistance = (aspect: number): number => {
+    const tanV = Math.tan((V_FOV_DEG * Math.PI / 180) / 2);
+    const tanH = aspect * tanV;             // horizontal half-angle tangent
+    const limitingTan = Math.min(tanV, tanH);
+    return 1 / (FILL_FRACTION * limitingTan); // bounding-sphere radius is 1
+  };
 
   // Free-orbit state, expressed in pole-relative coords:
   //   `tilt`: angle off the spin axis (0 = pole-on, π/2 = equator-on)
-  //   `azim`: rotation around the pole (chosen so the +ecliptic-x side
-  //           faces the viewer at azim=0)
-  // We default to (tilt = 60°, azim = 0), which is the canonical 3/4
-  // asteroid view: the equator is visible, both poles are visible, the
-  // longest axis sweeps across the projected silhouette during rotation.
+  //   `azim`: rotation around the pole
+  //   `zoomFactor`: user zoom multiplier on top of the auto-fit distance
+  //                 (1 = framed-to-fit; <1 = zoomed in; >1 = out)
+  // Default (tilt = 60°, azim = 0) is the canonical 3/4 asteroid view.
   const cameraState = {
-    distance: CAMERA_DISTANCE,
     tilt: Math.PI / 3,
     azim: 0,
+    zoomFactor: 1,
+    distance: fitDistance(width / Math.max(height, 1)),
   };
   const updateCameraFromState = (): void => {
     // Build an orthonormal basis (e1, e2, pole) where e1, e2 lie in the
@@ -263,6 +294,16 @@ export function buildScene(
     camera.up.set(upGuess.x, upGuess.y, upGuess.z);
     camera.lookAt(0, 0, 0);
   };
+
+  // Recompute the framing distance for the current viewport aspect and
+  // the user's zoom factor. Called on construction, on zoom, and on
+  // resize so the body stays well-framed at any pane shape.
+  const applyZoom = (): void => {
+    const aspect = camera.aspect || 1;
+    cameraState.distance = fitDistance(aspect) * cameraState.zoomFactor;
+  };
+  applyZoom();
+  updateCameraFromState();
 
   let dirty = true;
   const requestRender = (): void => { dirty = true; };
@@ -347,8 +388,11 @@ export function buildScene(
   on('wheel', (e: WheelEvent) => {
     if (!e.shiftKey) return; // let the page scroll
     e.preventDefault();
+    // Zoom adjusts a relative factor on top of the auto-fit distance, so
+    // it survives resizes (which recompute the fit baseline).
     const factor = Math.exp(e.deltaY * 0.001);
-    cameraState.distance = Math.max(1.4, Math.min(20, cameraState.distance * factor));
+    cameraState.zoomFactor = Math.max(0.25, Math.min(3.5, cameraState.zoomFactor * factor));
+    applyZoom();
     if (viewMode === 'free') updateCameraFromState();
     else placeCameraForEarthView();
     requestRender();
@@ -391,13 +435,18 @@ export function buildScene(
       currentSpin = spin;
       const p = poleDirection(spin);
       arrow.setDirection(new Vector3(p.x, p.y, p.z));
-      poleLabel.position.set(p.x * 1.75, p.y * 1.75, p.z * 1.75);
+      poleLabel.position.set(p.x * POLE_LABEL_R, p.y * POLE_LABEL_R, p.z * POLE_LABEL_R);
       requestRender();
     },
     resize(w, h): void {
       renderer.setSize(w, h);
       camera.aspect = w / Math.max(h, 1);
       camera.updateProjectionMatrix();
+      // Re-frame for the new aspect (preserving the user's zoom factor),
+      // so a wide-short or tall-narrow pane still fills with the body.
+      applyZoom();
+      if (viewMode === 'earth') placeCameraForEarthView();
+      else updateCameraFromState();
       requestRender();
     },
     dispose(): void {

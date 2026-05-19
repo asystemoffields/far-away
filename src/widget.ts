@@ -564,3 +564,9 @@ function computeRms(predicted: ArrayLike<number>, scale: number, curve: LightCur
 
 export type { AsteroidModel, LightCurve, LightCurvePoint, Vec3, SpinState, ShapeModel } from './core/types.ts';
 export { parseShapeTxt, parseLcTxt, parseLcJson, parseObj } from './core/parse.ts';
+// Pole-fitting is exposed for embedders who pair a shape file with LCs
+// from a different source (different inversion run, different paper).
+// Call fitPoleAndPhase once at load with all LCs, then build a SpinState
+// from the result before passing the model to mount().
+export { fitPoleAndPhase, fitPhaseOffset } from './core/photometry.ts';
+export { buildFacetGeometry } from './core/geometry.ts';

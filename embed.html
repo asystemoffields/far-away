@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DAMIT-coupled viewer — embed example</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; padding: 0; background: #0b0d12; color: #d6dae3; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+      main { max-width: 1080px; margin: 0 auto; padding: 22px 26px 60px; }
+      h1 { font-size: 22px; margin: 0 0 8px; font-weight: 600; }
+      h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.08em; margin: 28px 0 10px; color: #9aa3b2; font-weight: 600; }
+      p { line-height: 1.55; color: #c1c7d3; }
+      a { color: #ffc14f; }
+      pre {
+        background: #11141b;
+        border: 1px solid #1c212b;
+        border-radius: 8px;
+        padding: 14px 16px;
+        overflow-x: auto;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12.5px;
+        line-height: 1.55;
+      }
+      code { color: #d6dae3; }
+      .k { color: #c792ea; }   /* keyword */
+      .s { color: #c3e88d; }   /* string */
+      .c { color: #6b7280; font-style: italic; } /* comment */
+      .f { color: #82aaff; }   /* function/method */
+      .n { color: #f78c6c; }   /* number */
+      .t { color: #ffcb6b; }   /* tag */
+      #host {
+        width: 100%;
+        height: 600px;
+        margin-top: 6px;
+        border: 1px solid #1c212b;
+        border-radius: 8px;
+        background: #0b0d12;
+      }
+      .note { color: #9aa3b2; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>DAMIT-coupled asteroid viewer — embed example</h1>
+      <p>
+        This page is the smallest working embed of the widget — one
+        <code>&lt;script&gt;</code> tag, three lines of JS to mount it. The
+        full source of this page (everything you see above and the snippets
+        below) lives at
+        <a href="https://github.com/asystemoffields/far-away/blob/gh-pages/embed.html">embed.html on the gh-pages branch</a>.
+      </p>
+
+      <h2>Result</h2>
+      <div id="host"></div>
+      <p class="note">
+        Drag the body to rotate · click on the curve to scrub time · press play to animate.
+      </p>
+
+      <h2>Source — one script tag, one mount call</h2>
+<pre><code><span class="c">&lt;!-- 153&nbsp;KB&nbsp;gzip, CSS inlined --&gt;</span>
+<span class="t">&lt;script</span> <span class="k">src</span>=<span class="s">"./damit-viewer.umd.js"</span><span class="t">&gt;&lt;/script&gt;</span>
+<span class="t">&lt;div</span> <span class="k">id</span>=<span class="s">"host"</span> <span class="k">style</span>=<span class="s">"width:100%; height:600px"</span><span class="t">&gt;&lt;/div&gt;</span>
+<span class="t">&lt;script&gt;</span>
+  <span class="k">const</span> base = <span class="s">'./sample-data/hermione/'</span>;
+  <span class="f">Promise</span>.<span class="f">all</span>([
+    <span class="f">fetch</span>(base + <span class="s">'shape_damit_155.txt'</span>).<span class="f">then</span>(r =&gt; r.<span class="f">text</span>()),
+    <span class="f">fetch</span>(base + <span class="s">'herm.lc'</span>).<span class="f">then</span>(r =&gt; r.<span class="f">text</span>()),
+  ]).<span class="f">then</span>(([shapeText, lcText]) =&gt; {
+    <span class="k">const</span> shape       = DAMITViewer.<span class="f">parseShapeTxt</span>(shapeText);
+    <span class="k">const</span> lightCurves = DAMITViewer.<span class="f">parseLcTxt</span>(lcText);
+    <span class="k">const</span> scattering  = { lambertWeight: <span class="n">0.1</span> };
+
+    <span class="c">// Auto-fit pole if the shape file and LCs come from different inversions.</span>
+    <span class="c">// Skip this if you already have the matching published pole + JD0.</span>
+    <span class="k">const</span> seed  = { poleLambdaDeg: <span class="n">293</span>, poleBetaDeg: -<span class="n">34</span>, periodHours: <span class="n">5.55128</span>, jd0: <span class="n">2443032.5</span> };
+    <span class="k">const</span> facets = DAMITViewer.<span class="f">buildFacetGeometry</span>(shape);
+    <span class="k">const</span> fit    = DAMITViewer.<span class="f">fitPoleAndPhase</span>(facets, seed, scattering, lightCurves.<span class="f">slice</span>(<span class="n">0</span>, <span class="n">5</span>));
+
+    DAMITViewer.<span class="f">mount</span>(<span class="f">document.getElementById</span>(<span class="s">'host'</span>), {
+      name: <span class="s">'(121) Hermione'</span>,
+      shape, lightCurves, scattering,
+      spin: { ...seed, poleLambdaDeg: fit.poleLambdaDeg, poleBetaDeg: fit.poleBetaDeg, jd0: fit.jd0 },
+      publishedSpin: seed,
+      fitRms: fit.rms,
+    }, {
+      initialLightCurveIndex: <span class="n">9</span>,         <span class="c">// LC #10, high-amplitude apparition</span>
+      initialViewMode:        <span class="s">'earth'</span>,    <span class="c">// canonical 'view from Earth' frame</span>
+    });
+  });
+<span class="t">&lt;/script&gt;</span></code></pre>
+
+      <h2>What's in the bundle</h2>
+      <p>
+        <code>damit-viewer.umd.js</code> is self-contained: Three.js, uPlot, and
+        all styles are inlined, so a single <code>&lt;script&gt;</code> tag is
+        enough — no separate stylesheet, no CDN dependency, no build step on
+        the embedder side. The widget injects its own CSS at first
+        <code>mount()</code>, scoped to <code>.damit-viewer-host</code>, with
+        a <code>:where()</code>-based reset so a host page's
+        <code>!important</code> rules on
+        <code>button</code>/<code>select</code> don't bleed through.
+      </p>
+      <p>
+        The data you pass in is plain JS: <code>parseShapeTxt</code> and
+        <code>parseLcTxt</code> accept the canonical DAMIT text formats, so a
+        DAMIT model page can drop in the same text it's already serving from
+        <code>asteroid_models/files/</code>.
+      </p>
+
+      <h2>Returned handle</h2>
+<pre><code><span class="k">const</span> handle = DAMITViewer.<span class="f">mount</span>(host, model, opts);
+handle.<span class="f">setLightCurveByIndex</span>(<span class="n">12</span>);     <span class="c">// switch the displayed curve</span>
+handle.<span class="f">setLightCurveById</span>(<span class="n">7</span>);         <span class="c">// (alternative: by LC's `id` field)</span>
+handle.<span class="f">setJd</span>(<span class="n">2452997.9</span>);             <span class="c">// scrub to a specific epoch</span>
+handle.<span class="f">play</span>(<span class="n">600</span>);                     <span class="c">// 600× real time</span>
+handle.<span class="f">pause</span>();
+handle.<span class="f">setScatteringC</span>(<span class="n">0.05</span>);          <span class="c">// adjust Lambert weight live</span>
+handle.<span class="f">setViewMode</span>(<span class="s">'free'</span>);            <span class="c">// 'free' | 'earth'</span>
+handle.<span class="f">getModel</span>();                    <span class="c">// returns a frozen snapshot</span>
+handle.<span class="f">dispose</span>();                     <span class="c">// tears down on unmount</span></code></pre>
+
+      <p class="note">
+        Source: <a href="https://github.com/asystemoffields/far-away">github.com/asystemoffields/far-away</a>
+        &middot;
+        Live demo: <a href="./">/</a>
+        &middot;
+        DAMIT: <a href="https://damit.cuni.cz/">damit.cuni.cz</a>
+      </p>
+    </main>
+
+    <script src="./damit-viewer.umd.js"></script>
+    <script>
+      (async function () {
+        const base = './sample-data/hermione/';
+        const [shapeText, lcText] = await Promise.all([
+          fetch(base + 'shape_damit_155.txt').then(function (r) { return r.text(); }),
+          fetch(base + 'herm.lc').then(function (r) { return r.text(); }),
+        ]);
+        const shape = DAMITViewer.parseShapeTxt(shapeText);
+        const lightCurves = DAMITViewer.parseLcTxt(lcText);
+        const scattering = { lambertWeight: 0.1 };
+        const seed = { poleLambdaDeg: 293, poleBetaDeg: -34, periodHours: 5.55128, jd0: 2443032.5 };
+        const facets = DAMITViewer.buildFacetGeometry(shape);
+        const fit = DAMITViewer.fitPoleAndPhase(facets, seed, scattering, lightCurves.slice(0, 5));
+        DAMITViewer.mount(document.getElementById('host'), {
+          name: '(121) Hermione',
+          shape, lightCurves, scattering,
+          spin: Object.assign({}, seed, {
+            poleLambdaDeg: fit.poleLambdaDeg,
+            poleBetaDeg: fit.poleBetaDeg,
+            jd0: fit.jd0,
+          }),
+          publishedSpin: seed,
+          fitRms: fit.rms,
+        }, {
+          initialLightCurveIndex: 9,
+          initialViewMode: 'earth',
+        });
+      })();
+    </script>
+  </body>
+</html>

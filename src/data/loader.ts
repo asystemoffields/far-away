@@ -120,7 +120,14 @@ export function ellipsoidShape(a: number, b: number, c: number, subdivisions = 1
 }
 
 /** Catalog of demo asteroids. The shape and LC URLs point to files vendored
- *  in /sample-data, originally pulled from public GitHub repos. */
+ *  in /sample-data, originally pulled from public GitHub repos.
+ *
+ *  We deliberately ship only entries that have BOTH a real shape file AND
+ *  real light curves — placeholder-shape entries (Hertha, DAMIT-convex
+ *  test) read as "broken science" to photometrists because the predicted
+ *  curve is dead-flat over noisy observations. Those LC files are still
+ *  vendored under public/sample-data/ for parser-format reference; add
+ *  them back to the demo catalog once a real shape file is paired. */
 export const DEMO_CATALOG: CatalogEntry[] = [
   {
     id: 'hermione',
@@ -129,10 +136,10 @@ export const DEMO_CATALOG: CatalogEntry[] = [
     lcUrl: '/sample-data/hermione/herm.lc',
     spin: {
       // Marchis et al. 2009 / Hanuš et al. 2017 — Hermione has a known
-      // pole ambiguity. We use the (293°, −34°) secondary solution, which
-      // empirically gives a better fit to the matvii/ADAM Contours light
-      // curves than the (112°, 6°) primary solution (the Asteroids-MDSM
-      // shape file does not advertise which solution it was inverted from).
+      // pole ambiguity. We seed the optimiser with the (293°, −34°)
+      // secondary solution; the auto-fit recovers whichever pole is
+      // consistent with the bundled Asteroids-MDSM shape file (which
+      // does not advertise its own pole convention).
       poleLambdaDeg: 293,
       poleBetaDeg: -34,
       periodHours: 5.55128,
@@ -142,37 +149,5 @@ export const DEMO_CATALOG: CatalogEntry[] = [
       'Shape: Hanuš et al., Asteroids-MDSM model 155 (CC BY 4.0). ' +
       'Light curves: matvii/ADAM Contours/herm.lc.',
     refitPoleOnLoad: true,
-  },
-  {
-    id: 'hertha',
-    name: '(135) Hertha',
-    placeholderShape: ellipsoidShape(43.56, 43.56, 35.64),
-    lcUrl: '/sample-data/hertha/135.lc',
-    spin: {
-      // From matvii/ADAM 135_oct.ini config (DAMIT convention).
-      poleLambdaDeg: 272,
-      poleBetaDeg: 52,
-      periodHours: 8.40060,
-      jd0: 2443846.0,
-    },
-    citation:
-      'Shape: placeholder ellipsoid (43.56, 43.56, 35.64 km) per ADAM init. ' +
-      'Light curves: matvii/ADAM Hertha/135.lc.',
-  },
-  {
-    id: 'damit-convex-test',
-    name: 'DAMIT-convex test asteroid',
-    placeholderShape: ellipsoidShape(1, 0.85, 0.7),
-    lcUrl: '/sample-data/damit-convex/test_lcs_rel',
-    spin: {
-      // From DAMIT-convex input_convexinv.
-      poleLambdaDeg: 220,
-      poleBetaDeg: 0,
-      periodHours: 5.76198,
-      jd0: 2438882.0,
-    },
-    citation:
-      'Canonical Kaasalainen test set bundled with convexinv. ' +
-      'Shape: placeholder ellipsoid; the actual inverted shape would come from running convexinv.',
   },
 ];

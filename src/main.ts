@@ -20,18 +20,25 @@ interface DemoEntry {
   hint: string;
 }
 
-const realEntries = DEMO_CATALOG.map((c: CatalogEntry): DemoEntry => ({
+interface PreparedEntry extends DemoEntry {
+  initialLightCurveIndex?: number;
+  initialViewMode?: 'free' | 'earth';
+}
+
+const realEntries: PreparedEntry[] = DEMO_CATALOG.map((c: CatalogEntry): PreparedEntry => ({
   id: c.id,
   label: c.name,
   load: () => loadCatalogEntry(c),
   hint:
-    c.id === 'hermione' ? 'real shape + 41 real LCs; pole auto-fit'
-    : c.id === 'hertha' ? 'real LCs × 32 + placeholder ellipsoid shape'
-    : c.id === 'damit-convex-test' ? 'Kaasalainen canonical 37-LC test set + placeholder shape'
+    c.id === 'hermione' ? 'real shape + 41 real LCs; pole auto-fit from photometry'
     : 'real DAMIT data',
+  // Hermione looks best with LC #10 (high-amplitude apparition) viewed
+  // from Earth — that's the screenshot that sells the widget.
+  initialLightCurveIndex: c.id === 'hermione' ? 9 : 0,
+  initialViewMode: c.id === 'hermione' ? 'earth' : 'free',
 }));
 
-const syntheticEntries: DemoEntry[] = [
+const syntheticEntries: PreparedEntry[] = [
   {
     id: 'synth-potato',
     label: '(demo) bumpy ellipsoid',
@@ -54,12 +61,11 @@ const syntheticEntries: DemoEntry[] = [
 
 // Order: lead with the real-data headline (Hermione), follow with a clean
 // synthetic that has a "perfect" predicted-vs-observed match (so users see
-// the math is right), then the remaining real and synthetic entries.
-const entries: DemoEntry[] = [
+// the math is right), then the rest of the synthetic suite.
+const entries: PreparedEntry[] = [
   realEntries.find((e) => e.id === 'hermione')!,
   syntheticEntries[0]!, // bumpy ellipsoid
   syntheticEntries[1]!, // brick
-  ...realEntries.filter((e) => e.id !== 'hermione'),
   syntheticEntries[2]!, // sphere
 ];
 
@@ -108,18 +114,34 @@ const host = document.getElementById('host') as HTMLDivElement;
 
 let handle: ViewerHandle | undefined;
 
+// Generation counter guards against the loader race: if the user changes
+// the picker while a previous load is in flight (e.g. Hermione's pole-fit
+// takes ~2 s), the stale promise resolves but the newer pick has already
+// bumped `currentGen`, so we ignore the stale result.
+let currentGen = 0;
 async function load(id: string): Promise<void> {
   const entry = entries.find((e) => e.id === id);
   if (!entry) return;
+  const gen = ++currentGen;
   status.textContent = 'loading…';
   try {
     const model = await entry.load();
+    if (gen !== currentGen) return; // stale: user has moved on
     if (handle) handle.dispose();
-    handle = mount(host, model);
+    handle = mount(host, model, {
+      initialLightCurveIndex: entry.initialLightCurveIndex ?? 0,
+      initialViewMode: entry.initialViewMode ?? 'free',
+    });
     status.textContent = `${model.lightCurves.length} light curves, ${model.shape.faces.length / 3} facets`;
   } catch (err) {
-    status.textContent = `error: ${(err as Error).message}`;
-    host.innerHTML = `<div class="demo-error">${(err as Error).message}</div>`;
+    if (gen !== currentGen) return;
+    const msg = (err as Error).message;
+    status.textContent = `error: ${msg}`;
+    host.textContent = '';
+    const errDiv = document.createElement('div');
+    errDiv.className = 'demo-error';
+    errDiv.textContent = msg; // textContent, NOT innerHTML — error strings can carry untrusted content
+    host.appendChild(errDiv);
   }
 }
 

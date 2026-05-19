@@ -137,36 +137,53 @@ export function buildScene(
   );
   scene.add(arrow);
 
-  // Camera. Distance is chosen so that the mesh's enclosing unit sphere
-  // occupies ~50% of the smaller viewport dimension across all rotations
-  // (the body-frame bounding sphere has radius ≤ 1 after the scale above).
+  // Camera. Distance picked so the unit-radius body fills ~50% of the
+  // smaller viewport dimension at any rotation.
+  const CAMERA_DISTANCE = 6.5;
   const camera = new PerspectiveCamera(35, width / Math.max(height, 1), 0.01, 100);
-  camera.position.set(4.5, 3.2, 4.8);
-  camera.lookAt(0, 0, 0);
   scene.add(camera);
 
-  // Free-orbit camera state. We implement a minimal trackball ourselves to
-  // avoid pulling in three/examples/controls just for two interactions.
+  // Free-orbit state, expressed in pole-relative coords:
+  //   `tilt`: angle off the spin axis (0 = pole-on, π/2 = equator-on)
+  //   `azim`: rotation around the pole (chosen so the +ecliptic-x side
+  //           faces the viewer at azim=0)
+  // We default to (tilt = 60°, azim = 0), which is the canonical 3/4
+  // asteroid view: the equator is visible, both poles are visible, the
+  // longest axis sweeps across the projected silhouette during rotation.
   const cameraState = {
-    distance: camera.position.length(),
-    yaw: Math.atan2(camera.position.x, camera.position.z),
-    pitch: Math.atan2(
-      camera.position.y,
-      Math.sqrt(camera.position.x ** 2 + camera.position.z ** 2),
-    ),
+    distance: CAMERA_DISTANCE,
+    tilt: Math.PI / 3,
+    azim: 0,
   };
   const updateCameraFromState = (): void => {
-    const cp = Math.cos(cameraState.pitch);
-    const sp = Math.sin(cameraState.pitch);
-    const cy = Math.cos(cameraState.yaw);
-    const sy = Math.sin(cameraState.yaw);
+    // Build an orthonormal basis (e1, e2, pole) where e1, e2 lie in the
+    // body's equatorial plane (ecliptic-J2000 components of the pole are
+    // known from the spin state).
+    const p = poleDirection(currentSpin);
+    // Pick a reference vector not parallel to the pole.
+    const ref = Math.abs(p.z) > 0.95 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 0, z: 1 };
+    const e1 = crossNorm(p, ref);
+    const e2 = crossNorm(p, e1);
+    const st = Math.sin(cameraState.tilt);
+    const ct = Math.cos(cameraState.tilt);
+    const sa = Math.sin(cameraState.azim);
+    const ca = Math.cos(cameraState.azim);
+    const d = cameraState.distance;
     camera.position.set(
-      cameraState.distance * cp * sy,
-      cameraState.distance * sp,
-      cameraState.distance * cp * cy,
+      d * (st * (ca * e1.x + sa * e2.x) + ct * p.x),
+      d * (st * (ca * e1.y + sa * e2.y) + ct * p.y),
+      d * (st * (ca * e1.z + sa * e2.z) + ct * p.z),
     );
+    camera.up.set(p.x, p.y, p.z); // pole stays vertical in screen space
     camera.lookAt(0, 0, 0);
   };
+  function crossNorm(a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): { x: number; y: number; z: number } {
+    const x = a.y * b.z - a.z * b.y;
+    const y = a.z * b.x - a.x * b.z;
+    const z = a.x * b.y - a.y * b.x;
+    const len = Math.sqrt(x * x + y * y + z * z) || 1;
+    return { x: x / len, y: y / len, z: z / len };
+  }
   updateCameraFromState();
 
   let viewMode: 'free' | 'earth' = 'free';
@@ -216,9 +233,12 @@ export function buildScene(
     const dx = e.clientX - lastX;
     const dy = e.clientY - lastY;
     lastX = e.clientX; lastY = e.clientY;
-    cameraState.yaw   -= dx * 0.008;
-    cameraState.pitch -= dy * 0.008;
-    cameraState.pitch = Math.max(-1.5, Math.min(1.5, cameraState.pitch));
+    // Horizontal drag rotates around the spin axis (azim); vertical drag
+    // tilts toward/away from the pole. Clamp tilt away from the
+    // singularity at pole-on (≈ 5° margin).
+    cameraState.azim -= dx * 0.008;
+    cameraState.tilt += dy * 0.008;
+    cameraState.tilt = Math.max(0.1, Math.min(Math.PI - 0.1, cameraState.tilt));
     updateCameraFromState();
     requestRender();
   });

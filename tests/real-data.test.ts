@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { parseLcTxt, parseShapeTxt } from '../src/core/parse.ts';
 import { buildFacetGeometry } from '../src/core/geometry.ts';
 import {
-  fitPhaseOffset,
+  fitPoleAndPhase,
   predictCurve,
 } from '../src/core/photometry.ts';
 import { DEFAULT_SCATTERING, type SpinState } from '../src/core/types.ts';
@@ -72,19 +72,35 @@ describe('real DAMIT data — Hermione', () => {
     for (let i = 0; i < predRaw.length; i++) if (predRaw[i]! > 0) nonZero++;
     expect(nonZero).toBe(lc.points.length);
 
-    // Fit the phase against the observed curve.
-    const fit = fitPhaseOffset(facets, HERMIONE_SPIN, DEFAULT_SCATTERING, lc);
-    expect(fit.scale).toBeGreaterThan(0);
-
-    // The mean observed intensity is ~1.0 (relative LCs are typically
-    // normalised); the RMS after phase fit should be well below 10% of mean.
     const mean = lc.points.reduce((a, p) => a + p.intensity, 0) / lc.points.length;
     expect(mean).toBeGreaterThan(0.5);
     expect(mean).toBeLessThan(2.0);
-    // For a published shape/pole, RMS should be a few percent of the mean.
-    // We give a generous bound (15%) so this serves as a regression guard
-    // rather than a fidelity assertion.
-    expect(fit.rms / mean).toBeLessThan(0.15);
+
+    // The observed curve has finite amplitude (peaks vs troughs differ by
+    // ~5% of mean). A model that predicts a CONSTANT could still pass a
+    // naïve "RMS < 15% of mean" check — so we run a real (pole+phase)
+    // joint fit and demand both:
+    //   (a) the fit RMS is meaningfully below the curve's own peak-to-peak
+    //       amplitude — i.e., the model is actually tracking variation,
+    //   (b) the predicted curve itself has non-trivial amplitude after
+    //       scaling.
+    const fit = fitPoleAndPhase(facets, HERMIONE_SPIN, DEFAULT_SCATTERING, [lc]);
+    const observedAmp = (Math.max(...lc.points.map((p) => p.intensity))
+                      - Math.min(...lc.points.map((p) => p.intensity))) / mean;
+    expect(observedAmp).toBeGreaterThan(0.02); // sanity: curve isn't actually flat
+    expect(fit.rms).toBeLessThan(observedAmp / 2); // model captures more than half the variation
+
+    // Sanity-check the model amplitude with the fitted pole.
+    const fittedSpin = {
+      ...HERMIONE_SPIN,
+      poleLambdaDeg: fit.poleLambdaDeg,
+      poleBetaDeg: fit.poleBetaDeg,
+      jd0: fit.jd0,
+    };
+    const predRefit = predictCurve(facets, fittedSpin, DEFAULT_SCATTERING, lc);
+    const pMin = Math.min(...predRefit);
+    const pMax = Math.max(...predRefit);
+    expect((pMax - pMin) / ((pMax + pMin) / 2)).toBeGreaterThan(0.01);
   });
 
   it('relative-vs-absolute light curve formats both parse', () => {

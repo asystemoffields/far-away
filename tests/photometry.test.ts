@@ -217,11 +217,122 @@ describe('fitPoleAndPhase — drives residuals to the noise floor on synthetic d
       refineRadius: 15,
     });
 
-    // The synthetic curve has no noise, so fit residual should be tiny.
-    const meanIntensity = pts.reduce((a, p) => a + p.intensity, 0) / pts.length;
-    expect(fit.rms / meanIntensity).toBeLessThan(0.01);
+    // fit.rms is reported as a fraction of the curve mean. With noise-free
+    // synthetic data the optimiser should drive it to well below 1%.
+    expect(fit.rms).toBeLessThan(0.01);
+    // The pole-fit also returns an absolute jd0 (not an offset). A brick
+    // has a 180° symmetry about each principal axis, so the recovered jd0
+    // can be the truth OR truth + P/2 and still fit equally well. Verify
+    // it lands in one of those two equivalence classes within the phi-grid
+    // resolution.
+    const periodDays = truth.periodHours / 24;
+    const phaseError = (((fit.jd0 - truth.jd0) / periodDays) % 1 + 1) % 1;
+    const phaseDistance = Math.min(
+      phaseError,
+      1 - phaseError,
+      Math.abs(phaseError - 0.5),
+    );
+    // Phi grid is 64 samples — resolution ≈ 1/64 of a period. Allow up
+    // to two bins of slop for grid-quantisation + symmetry interaction.
+    expect(phaseDistance).toBeLessThan(3 / 64);
   });
 });
+
+describe('predictBrightness — analytic ground truth on a unit sphere', () => {
+  // A non-circular check: we synthesise a sphere mesh and compare its
+  // integrated brightness at opposition (α = 0) against the closed-form
+  // surface integral, NOT against any other call to predictBrightness.
+  // This catches sign flips, transposed rotation matrices, wrong outward-
+  // normal convention, or factor-of-2π errors that would slip past the
+  // synthetic-fixture tests (which use predictBrightness to generate the
+  // observed values, hiding shared bugs).
+  it('matches the closed-form Lommel-Seeliger + Lambert integral at α = 0', () => {
+    // For a unit sphere at α = 0 (Sun and Earth coincident), μ₀ = μ
+    // everywhere on the visible hemisphere. The KTM formula reduces to
+    //   S(μ, μ) = μ²·(1/(2μ) + c) = μ/2 + c·μ².
+    // Integrating over the hemisphere visible from Sun = Earth direction:
+    //   F = ∫₀^{2π} ∫₀^{π/2} (cosθ/2 + c·cos²θ) · sinθ dθ dφ
+    //     = 2π · (1/4 + c/3).
+    const subdivisions = 24;
+    const shape = unitSphereForTest(subdivisions);
+    const facets = buildFacetGeometry(shape);
+    const c = 0.1;
+    const spin: SpinState = {
+      poleLambdaDeg: 0,
+      poleBetaDeg: 90, // pole = +ẑ_ecl so body & ecliptic frames coincide
+      periodHours: 1,
+      jd0: 0,
+    };
+    // Sun and Earth at the same point on the −x ecliptic axis (α = 0).
+    const sun = { x: -1, y: 0, z: 0 };
+    const earth = { x: -1, y: 0, z: 0 };
+    const F = predictBrightness(facets, spin, { lambertWeight: c }, {
+      jd: 0, intensity: 0, sun, earth,
+    });
+    const F_analytic = 2 * Math.PI * (0.25 + c / 3);
+    // Cube→sphere tessellation has area-distribution non-uniformity of a
+    // few percent at this subdivision count; the integral itself should
+    // match to <1%.
+    expect(Math.abs(F / F_analytic - 1)).toBeLessThan(0.01);
+  });
+
+  it('returns zero at α = π (Sun-Earth anti-parallel) for a sphere', () => {
+    const shape = unitSphereForTest(16);
+    const facets = buildFacetGeometry(shape);
+    const spin: SpinState = {
+      poleLambdaDeg: 0, poleBetaDeg: 90, periodHours: 1, jd0: 0,
+    };
+    // Sun on +x, Earth on −x. The illuminated hemisphere is +x, the
+    // visible hemisphere is −x: zero overlap → zero brightness.
+    const F = predictBrightness(facets, spin, { lambertWeight: 0.1 }, {
+      jd: 0, intensity: 0, sun: { x: 1, y: 0, z: 0 }, earth: { x: -1, y: 0, z: 0 },
+    });
+    expect(F).toBe(0);
+  });
+});
+
+// Cube→sphere tessellation, copied locally so the analytic test doesn't
+// depend on the same `unitSphere` helper used by synthesised fixtures
+// (avoids any shared-helper bug correlating the analytic check with the
+// fitter's own assumptions).
+function unitSphereForTest(subdivisions: number): ShapeModel {
+  const n = subdivisions;
+  const vs: number[] = [];
+  const fs: number[] = [];
+  const map = new Map<string, number>();
+  const addVert = (x: number, y: number, z: number): number => {
+    const len = Math.sqrt(x * x + y * y + z * z);
+    const nx = x / len, ny = y / len, nz = z / len;
+    const k = `${nx.toFixed(8)},${ny.toFixed(8)},${nz.toFixed(8)}`;
+    let idx = map.get(k);
+    if (idx === undefined) {
+      idx = vs.length / 3;
+      vs.push(nx, ny, nz);
+      map.set(k, idx);
+    }
+    return idx;
+  };
+  const faces: ((i: number, j: number) => [number, number, number])[] = [
+    (i, j) => [1, (2 * j) / n - 1, (2 * i) / n - 1],
+    (i, j) => [-1, (2 * j) / n - 1, -((2 * i) / n - 1)],
+    (i, j) => [(2 * j) / n - 1, 1, -((2 * i) / n - 1)],
+    (i, j) => [(2 * j) / n - 1, -1, (2 * i) / n - 1],
+    (i, j) => [-((2 * j) / n - 1), (2 * i) / n - 1, 1],
+    (i, j) => [(2 * j) / n - 1, (2 * i) / n - 1, -1],
+  ];
+  for (const pt of faces) {
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        const i0 = addVert(...pt(i, j));
+        const i1 = addVert(...pt(i + 1, j));
+        const i2 = addVert(...pt(i + 1, j + 1));
+        const i3 = addVert(...pt(i, j + 1));
+        fs.push(i0, i1, i2, i0, i2, i3);
+      }
+    }
+  }
+  return { vertices: new Float32Array(vs), faces: new Uint32Array(fs) };
+}
 
 /** Axis-aligned brick of full size (lx, ly, lz), centred at origin. */
 function brick(lx: number, ly: number, lz: number): ShapeModel {

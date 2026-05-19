@@ -40,18 +40,22 @@ export async function loadCatalogEntry(entry: CatalogEntry): Promise<AsteroidMod
 
   let spin = entry.spin;
   let citation = entry.citation;
+  let publishedSpin: SpinState | undefined;
+  let fitRms: number | undefined;
   if (entry.refitPoleOnLoad && lcs.length > 0) {
     const facets = buildFacetGeometry(shape);
     // Use the first ~5 light curves (longest first) so the joint fit
     // anchors on multiple geometries without scanning every LC.
     const chosen = [...lcs].sort((a, b) => b.points.length - a.points.length).slice(0, 5);
     const fit = fitPoleAndPhase(facets, entry.spin, DEFAULT_SCATTERING, chosen);
+    publishedSpin = entry.spin;
     spin = {
       ...entry.spin,
       poleLambdaDeg: fit.poleLambdaDeg,
       poleBetaDeg: fit.poleBetaDeg,
-      jd0: entry.spin.jd0 - fit.jdOffset,
+      jd0: fit.jd0,
     };
+    fitRms = fit.rms;
     citation = `${entry.citation} Pole auto-fit from LCs: (${fit.poleLambdaDeg.toFixed(0)}°, ${fit.poleBetaDeg.toFixed(0)}°), RMS ${(fit.rms * 100).toFixed(2)}% of mean.`;
   }
 
@@ -62,6 +66,8 @@ export async function loadCatalogEntry(entry: CatalogEntry): Promise<AsteroidMod
     lightCurves: lcs,
     scattering: { ...DEFAULT_SCATTERING },
     citation,
+    publishedSpin,
+    fitRms,
   };
 }
 

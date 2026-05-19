@@ -77,4 +77,10 @@ export interface AsteroidModel {
   scattering: ScatteringParams;
   /** Optional credit string for citation on the widget UI. */
   citation?: string;
+  /** If the live `spin` was auto-fit from the light curves, this is the
+   *  pole/period/JD0 as published in the source paper for the shape file.
+   *  The widget surfaces both so users can see what was refined. */
+  publishedSpin?: SpinState;
+  /** Global RMS residual of the auto-fit, as a fraction of curve mean. */
+  fitRms?: number;
 }

@@ -191,7 +191,17 @@ export function mount(
   // Pass the effective spin (with per-LC phase offset) to the scene so the
   // rendered orientation matches what the photometric model is computing.
   const sceneModel: AsteroidModel = { ...model, spin: effectiveSpin };
-  const scene: SceneHandle = buildScene(sceneHost, sceneModel);
+  // Forward-declare so the scene callback can reach back into the
+  // controls (declared further down) to keep the dropdown in sync when
+  // the scene auto-switches modes (e.g. earth → free on first drag).
+  let viewSelectRef: HTMLSelectElement | undefined;
+  const scene: SceneHandle = buildScene(sceneHost, sceneModel, {
+    onViewModeChange: (mode) => {
+      if (viewSelectRef && viewSelectRef.value !== mode) {
+        viewSelectRef.value = mode;
+      }
+    },
+  });
   scene.setJd(currentJd);
   scene.setSunEarth(currentLc.points[0]!.sun, currentLc.points[0]!.earth);
 
@@ -346,6 +356,7 @@ export function mount(
     viewSelect.appendChild(freeOpt);
     viewSelect.appendChild(earthOpt);
     viewSelect.value = opts.initialViewMode ?? 'free';
+    viewSelectRef = viewSelect;
     viewSelect.addEventListener('change', () => {
       scene.setViewMode(viewSelect.value as 'free' | 'earth');
     });

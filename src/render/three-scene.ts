@@ -55,12 +55,21 @@ export interface SceneHandle {
   requestRender(): void;
 }
 
+export interface SceneOptions {
+  /** Called whenever the scene's internal view mode changes — including
+   *  the auto-switch from 'earth' to 'free' when the user starts dragging.
+   *  Embedding code uses this to keep its own UI (e.g. a dropdown) in
+   *  sync with the actual scene state. */
+  onViewModeChange?: (mode: 'free' | 'earth') => void;
+}
+
 /** Build a Three.js scene around a Three.js renderer mounted in `container`.
  *  The render loop runs on requestAnimationFrame and is driven by changes
  *  to JD or by orbit interactions. */
 export function buildScene(
   container: HTMLElement,
   model: AsteroidModel,
+  opts: SceneOptions = {},
 ): SceneHandle {
   const width = container.clientWidth || 480;
   const height = container.clientHeight || 360;
@@ -206,6 +215,35 @@ export function buildScene(
     const len = Math.sqrt(x * x + y * y + z * z) || 1;
     return { x: x / len, y: y / len, z: z / len };
   }
+  /** Reverse-engineer (distance, tilt, azim) from the current camera
+   *  position, so a transition from earth-view → free-orbit can start the
+   *  drag from exactly where the user was looking (instead of snapping
+   *  back to the default 3/4 view). */
+  function syncCameraStateToCurrentCamera(): void {
+    const px = camera.position.x, py = camera.position.y, pz = camera.position.z;
+    const dist = Math.sqrt(px * px + py * py + pz * pz) || 1;
+    cameraState.distance = dist;
+    const dirx = px / dist, diry = py / dist, dirz = pz / dist;
+    const p = poleDirection(currentSpin);
+    const cosT = dirx * p.x + diry * p.y + dirz * p.z;
+    cameraState.tilt = Math.acos(Math.max(-1, Math.min(1, cosT)));
+    // Equatorial component of the camera direction.
+    const ex = dirx - cosT * p.x;
+    const ey = diry - cosT * p.y;
+    const ez = dirz - cosT * p.z;
+    const eqLen = Math.sqrt(ex * ex + ey * ey + ez * ez);
+    if (eqLen < 1e-9) {
+      cameraState.azim = 0;
+      return;
+    }
+    const enx = ex / eqLen, eny = ey / eqLen, enz = ez / eqLen;
+    const ref = Math.abs(p.z) > 0.95 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 0, z: 1 };
+    const e1 = crossNorm(p, ref);
+    const e2 = crossNorm(p, e1);
+    const a1 = enx * e1.x + eny * e1.y + enz * e1.z;
+    const a2 = enx * e2.x + eny * e2.y + enz * e2.z;
+    cameraState.azim = Math.atan2(a2, a1);
+  }
   updateCameraFromState();
 
   let viewMode: 'free' | 'earth' = 'free';
@@ -249,6 +287,7 @@ export function buildScene(
   dom.setAttribute('aria-label', 'Asteroid 3D shape. Drag to rotate. Hold Shift and scroll to zoom.');
   dom.tabIndex = 0;
   dom.style.touchAction = 'none'; // suppress browser pinch/scroll-pan inside the canvas
+  dom.style.cursor = 'grab';      // signal that the canvas is draggable
 
   const listeners: Array<[string, EventListener, AddEventListenerOptions | boolean | undefined]> = [];
   const on = <K extends keyof HTMLElementEventMap>(
@@ -263,9 +302,20 @@ export function buildScene(
   let dragging = false;
   let lastX = 0, lastY = 0;
   on('pointerdown', (e: PointerEvent) => {
-    if (viewMode !== 'free') return;
+    // In earth-view mode the camera position is anchored to the Earth
+    // direction, so a drag has no degrees of freedom; rather than ignore
+    // the gesture (which led users to think the viewer wasn't
+    // responsive), seed the free-orbit state from the current camera
+    // position and switch into free orbit. The dropdown follows along
+    // via the onViewModeChange callback so the UI stays consistent.
+    if (viewMode === 'earth') {
+      syncCameraStateToCurrentCamera();
+      viewMode = 'free';
+      opts.onViewModeChange?.('free');
+    }
     dragging = true;
     lastX = e.clientX; lastY = e.clientY;
+    dom.style.cursor = 'grabbing';
     dom.setPointerCapture(e.pointerId);
   });
   on('pointermove', (e: PointerEvent) => {
@@ -284,6 +334,7 @@ export function buildScene(
   });
   const endDrag = (e: PointerEvent): void => {
     dragging = false;
+    dom.style.cursor = 'grab';
     if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId);
   };
   on('pointerup', endDrag);

@@ -132,7 +132,14 @@ handle.<span class="f">dispose</span>();                     <span class="c">// 
 
     <script src="./damit-viewer.umd.js"></script>
     <script>
+      // Two-phase mount: first the seed pole (cheap, instant — user sees
+      // the asteroid right away), then re-mount with the auto-fit pole
+      // when the optimiser finishes (~1–2 s). mount() is idempotent, so
+      // the second call replaces the first. This pattern avoids the ~5 s
+      // synchronous block that would otherwise leave the page blank.
       (async function () {
+        const host = document.getElementById('host');
+        const opts = { initialLightCurveIndex: 9, initialViewMode: 'earth' };
         const base = './sample-data/hermione/';
         const [shapeText, lcText] = await Promise.all([
           fetch(base + 'shape_damit_155.txt').then(function (r) { return r.text(); }),
@@ -142,21 +149,27 @@ handle.<span class="f">dispose</span>();                     <span class="c">// 
         const lightCurves = DAMITViewer.parseLcTxt(lcText);
         const scattering = { lambertWeight: 0.1 };
         const seed = { poleLambdaDeg: 293, poleBetaDeg: -34, periodHours: 5.55128, jd0: 2443032.5 };
-        const facets = DAMITViewer.buildFacetGeometry(shape);
-        const fit = DAMITViewer.fitPoleAndPhase(facets, seed, scattering, lightCurves.slice(0, 5));
-        DAMITViewer.mount(document.getElementById('host'), {
-          name: '(121) Hermione',
-          shape, lightCurves, scattering,
-          spin: Object.assign({}, seed, {
-            poleLambdaDeg: fit.poleLambdaDeg,
-            poleBetaDeg: fit.poleBetaDeg,
-            jd0: fit.jd0,
-          }),
-          publishedSpin: seed,
-          fitRms: fit.rms,
-        }, {
-          initialLightCurveIndex: 9,
-          initialViewMode: 'earth',
+
+        // Phase 1: render immediately with the seed pole.
+        DAMITViewer.mount(host, {
+          name: '(121) Hermione', shape, lightCurves, scattering, spin: seed,
+        }, opts);
+
+        // Phase 2: optimise pole + JD0 in the background, then re-mount.
+        const ric = window.requestIdleCallback || function (fn) { return setTimeout(fn, 0); };
+        ric(function () {
+          const facets = DAMITViewer.buildFacetGeometry(shape);
+          const fit = DAMITViewer.fitPoleAndPhase(facets, seed, scattering, lightCurves.slice(0, 5));
+          DAMITViewer.mount(host, {
+            name: '(121) Hermione', shape, lightCurves, scattering,
+            spin: Object.assign({}, seed, {
+              poleLambdaDeg: fit.poleLambdaDeg,
+              poleBetaDeg: fit.poleBetaDeg,
+              jd0: fit.jd0,
+            }),
+            publishedSpin: seed,
+            fitRms: fit.rms,
+          }, opts);
         });
       })();
     </script>

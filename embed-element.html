@@ -86,18 +86,21 @@
         initial-view="earth">
       </damit-viewer>
 
-      <h2>Form 2 — by DAMIT model id</h2>
+      <h2>Form 2 — by DAMIT model id and asteroid id</h2>
       <p>
         If you'd rather not template URLs, point the element at a DAMIT
-        instance by model id. The element will resolve
-        <code>https://damit.cuni.cz/asteroid_models/files/obj/&lt;id&gt;.obj</code>
-        for the shape and
-        <code>https://damit.cuni.cz/asteroid_models/lc/&lt;id&gt;.txt</code>
-        for the photometry. <strong>This currently requires DAMIT to set
+        instance by id. Two ids are needed because, in DAMIT, a shape is
+        keyed by <em>model</em> id while light curves are keyed by
+        <em>asteroid</em> id (one asteroid can have multiple shape models).
+        The element resolves
+        <code>https://damit.cuni.cz/generated_files/open/AsteroidModel/&lt;model-id&gt;/shape.obj</code>
+        and
+        <code>https://damit.cuni.cz/light_curves/exportAllForAsteroid/&lt;asteroid-id&gt;/json</code>.
+        <strong>This currently requires DAMIT to set
         <code>Access-Control-Allow-Origin: *</code></strong> on those
         endpoints — without that header, the browser blocks the
-        cross-origin fetch. Until then, you can point
-        <code>damit-base</code> at your own proxy.
+        cross-origin fetch. Until then, point <code>damit-base</code> at
+        a same-origin proxy you control.
       </p>
 <pre><code><span class="c">// In DAMIT, the shape file is keyed by model id; light curves are keyed by</span>
 <span class="c">// asteroid id (one asteroid can have multiple shape models).</span>

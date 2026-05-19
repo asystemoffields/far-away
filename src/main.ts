@@ -38,24 +38,32 @@ const realEntries: PreparedEntry[] = DEMO_CATALOG.map((c: CatalogEntry): Prepare
   initialViewMode: c.id === 'hermione' ? 'earth' : 'free',
 }));
 
+// Synthetic fixtures default to view-from-Earth: their Sun/Earth vectors
+// are arbitrary (we wrote them), and a free-orbit camera at the default
+// tilt happens to land on the unlit hemisphere — the body renders nearly
+// pitch-black until the user drags. Earth-view always frames the lit
+// side because the camera sits along the Earth direction.
 const syntheticEntries: PreparedEntry[] = [
   {
     id: 'synth-potato',
     label: '(demo) bumpy ellipsoid',
     hint: 'synthetic — realistic LC, scientifically-clean fit',
     load: async () => syntheticTumblingPotato(),
+    initialViewMode: 'earth',
   },
   {
     id: 'synth-brick',
     label: '(demo) elongated brick',
     hint: 'synthetic — classic two-peak LC, RMS at noise floor',
     load: async () => syntheticBrick(),
+    initialViewMode: 'earth',
   },
   {
     id: 'synth-sphere',
     label: '(demo) near-sphere',
     hint: 'synthetic — flat curve, rotation-invariant sanity check',
     load: async () => syntheticIcosphere(),
+    initialViewMode: 'earth',
   },
 ];
 

@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "build:pages": "tsc --noEmit && vite build --base=/far-away/",
+    "build:pages": "tsc --noEmit && vite build --base=/far-away/ && npm run build:widget && cp dist-widget/damit-viewer.umd.js embed.html embed-element.html dist/ && rm -f dist/assets/*.map",
     "build:widget": "vite build --config vite.widget.config.ts",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "test": "vitest run",

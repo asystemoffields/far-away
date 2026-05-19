@@ -163,6 +163,17 @@ export function mount(
   let rms = computeRms(predicted, scale, currentLc);
   let currentJd = currentLc.points[0]?.jd ?? effectiveSpin.jd0;
 
+  // The JD readout updates on every scrub / play tick, so we keep its
+  // text node hot-swappable instead of rebuilding the footer DOM each
+  // time. Created here so it can be referenced from both updateFooter
+  // (which assembles the footer) and updateJd (which retargets it).
+  const jdReadoutEl = document.createElement('span');
+  jdReadoutEl.className = 'dv-jd-readout';
+  const updateJdReadout = (jd: number): void => {
+    jdReadoutEl.textContent = `JD ${jd.toFixed(3)}`;
+  };
+  updateJdReadout(currentJd);
+
   // Footer for citation / residual.
   const footer = document.createElement('div');
   footer.className = 'dv-footer';
@@ -177,8 +188,9 @@ export function mount(
     const lcSpan = document.createElement('span');
     lcSpan.textContent =
       `LC #${currentLc.id} · ${currentLc.points.length} obs · ` +
-      `${currentLc.calibrated ? 'calibrated' : 'relative'} · RMS ${rmsPct.toFixed(2)}%`;
+      `${currentLc.calibrated ? 'calibrated' : 'relative'} · this-curve RMS ${rmsPct.toFixed(2)}%`;
     footer.appendChild(lcSpan);
+    footer.appendChild(jdReadoutEl);
     if (model.citation) {
       const citeSpan = document.createElement('span');
       citeSpan.className = 'dv-cite';
@@ -195,6 +207,11 @@ export function mount(
   // controls (declared further down) to keep the dropdown in sync when
   // the scene auto-switches modes (e.g. earth → free on first drag).
   let viewSelectRef: HTMLSelectElement | undefined;
+  // Hoisted refs so programmatic API methods (handle.play / pause) can
+  // update the visible controls. Otherwise the button text and the
+  // playing state desync.
+  let playBtnRef: HTMLButtonElement | undefined;
+  let rateInputRef: HTMLInputElement | undefined;
   const scene: SceneHandle = buildScene(sceneHost, sceneModel, {
     onViewModeChange: (mode) => {
       if (viewSelectRef && viewSelectRef.value !== mode) {
@@ -245,6 +262,41 @@ export function mount(
     scene.setJd(jd);
     scene.setSunEarth(sun, earth);
     plot.setJd(jd);
+    updateJdReadout(jd);
+  }
+
+  /** Single source of truth for "is the play loop running". Updates both
+   *  the internal flag and (if controls are shown) the play button's
+   *  text + aria-pressed + aria-label so the visible state never desyncs
+   *  from the actual state — including when the user calls handle.play()
+   *  or handle.pause() imperatively. */
+  function setPlaying(next: boolean): void {
+    if (next === playing) return;
+    playing = next;
+    if (next) {
+      lastWall = 0;
+      rafId = requestAnimationFrame(playLoop);
+      if (playBtnRef) {
+        playBtnRef.textContent = '⏸ pause';
+        playBtnRef.setAttribute('aria-pressed', 'true');
+        playBtnRef.setAttribute('aria-label', 'Pause the asteroid rotation animation');
+      }
+    } else {
+      cancelAnimationFrame(rafId);
+      if (playBtnRef) {
+        playBtnRef.textContent = '▶ play';
+        playBtnRef.setAttribute('aria-pressed', 'false');
+        playBtnRef.setAttribute('aria-label', 'Play the asteroid rotation animation');
+      }
+    }
+  }
+
+  function setSpeedMultiplier(rate: number): void {
+    realtimeMul = rate;
+    if (rateInputRef) {
+      rateInputRef.value = String(rate);
+      rateInputRef.setAttribute('aria-valuetext', `${rate} times real time`);
+    }
   }
 
   function changeLightCurve(newIdx: number): void {
@@ -286,6 +338,7 @@ export function mount(
     controls.appendChild(labeled('curve', curveSelect));
 
     const playBtn = document.createElement('button');
+    playBtnRef = playBtn;
     playBtn.className = 'dv-btn';
     playBtn.type = 'button';
     playBtn.textContent = '▶ play';
@@ -313,20 +366,7 @@ export function mount(
     applyReducedMotion();
     prefersReducedMotion?.addEventListener?.('change', applyReducedMotion);
     playBtn.addEventListener('click', () => {
-      if (playing) {
-        playing = false;
-        cancelAnimationFrame(rafId);
-        playBtn.textContent = '▶ play';
-        playBtn.setAttribute('aria-pressed', 'false');
-        playBtn.setAttribute('aria-label', 'Play the asteroid rotation animation');
-      } else {
-        playing = true;
-        lastWall = 0;
-        rafId = requestAnimationFrame(playLoop);
-        playBtn.textContent = '⏸ pause';
-        playBtn.setAttribute('aria-pressed', 'true');
-        playBtn.setAttribute('aria-label', 'Pause the asteroid rotation animation');
-      }
+      setPlaying(!playing);
     });
     controls.appendChild(playBtn);
 
@@ -334,6 +374,7 @@ export function mount(
     rateLabel.className = 'dv-range-label';
     rateLabel.textContent = 'speed (×)';
     const rateInput = document.createElement('input');
+    rateInputRef = rateInput;
     rateInput.type = 'range';
     rateInput.min = '60'; rateInput.max = '3600'; rateInput.step = '60';
     rateInput.value = String(realtimeMul);
@@ -406,25 +447,31 @@ export function mount(
   ro.observe(sceneHost);
   ro.observe(plotHost);
 
+  let disposed = false;
   const handle: ViewerHandle = {
-    setLightCurveByIndex: (index) => changeLightCurve(index),
+    setLightCurveByIndex: (index) => {
+      if (!Number.isInteger(index) || index < 0 || index >= model.lightCurves.length) {
+        throw new RangeError(
+          `setLightCurveByIndex(${index}): index out of range [0, ${model.lightCurves.length - 1}]`,
+        );
+      }
+      changeLightCurve(index);
+    },
     setLightCurveById: (id) => {
       const idx = model.lightCurves.findIndex((lc) => lc.id === id);
-      if (idx >= 0) changeLightCurve(idx);
+      if (idx < 0) {
+        throw new RangeError(
+          `setLightCurveById(${id}): no light curve with id=${id} in this model`,
+        );
+      }
+      changeLightCurve(idx);
     },
     setJd: updateJd,
     play: (rate) => {
-      if (rate !== undefined) realtimeMul = rate;
-      if (!playing) {
-        playing = true;
-        lastWall = 0;
-        rafId = requestAnimationFrame(playLoop);
-      }
+      if (rate !== undefined) setSpeedMultiplier(rate);
+      setPlaying(true);
     },
-    pause: () => {
-      playing = false;
-      cancelAnimationFrame(rafId);
-    },
+    pause: () => setPlaying(false),
     setScatteringC: (c) => {
       model.scattering.lambertWeight = c;
       predicted = predictCurve(facets, effectiveSpin, model.scattering, currentLc);
@@ -434,10 +481,15 @@ export function mount(
       updateFooter();
     },
     setViewMode: (mode) => scene.setViewMode(mode),
-    getModel: () => deepFreeze(model),
+    getModel: () => snapshotModel(model),
     dispose: () => {
-      playing = false;
-      cancelAnimationFrame(rafId);
+      // Idempotent — calling dispose twice (e.g. host code defensively
+      // tearing down after mount() already auto-disposed via the
+      // __damitViewerDispose hook) would otherwise throw inside the
+      // already-destroyed uPlot and WebGLRenderer instances.
+      if (disposed) return;
+      disposed = true;
+      setPlaying(false);
       ro.disconnect();
       plot.dispose();
       scene.dispose();
@@ -495,19 +547,26 @@ export function injectStylesIntoShadow(root: ShadowRoot): void {
   }
 }
 
-/** Shallow-freeze the model and its nested spin/scattering objects. Light
- *  curves and shape arrays stay as-is — they are large and the freeze cost
- *  isn't worth it for typed arrays — but the top-level interface that
- *  embedders are likely to fiddle with is locked. */
-function deepFreeze<T extends object>(o: T): Readonly<T> {
-  Object.freeze(o);
-  for (const k of Object.keys(o) as (keyof T)[]) {
-    const v = o[k];
-    if (v && typeof v === 'object' && !ArrayBuffer.isView(v) && !Array.isArray(v) && !Object.isFrozen(v)) {
-      Object.freeze(v);
-    }
-  }
-  return o;
+/** Snapshot the live model into a frozen view suitable for callers that
+ *  introspect state. Critically, we CLONE the model and the mutable
+ *  nested objects (spin, scattering, publishedSpin) before freezing —
+ *  the live `model` itself stays mutable so the c-slider / curve switcher
+ *  can update it. (Freezing the live object directly broke the c-slider:
+ *  the next assignment to `model.scattering.lambertWeight` threw in
+ *  strict mode.) Shape arrays and the light-curve array are shared by
+ *  reference — they're large + already effectively read-only at runtime. */
+function snapshotModel(model: AsteroidModel): Readonly<AsteroidModel> {
+  const snap: AsteroidModel = {
+    ...model,
+    spin: { ...model.spin },
+    scattering: { ...model.scattering },
+    publishedSpin: model.publishedSpin ? { ...model.publishedSpin } : undefined,
+  };
+  Object.freeze(snap.spin);
+  Object.freeze(snap.scattering);
+  if (snap.publishedSpin) Object.freeze(snap.publishedSpin);
+  Object.freeze(snap);
+  return snap;
 }
 
 function clampIndex(i: number, n: number): number {

@@ -96,15 +96,22 @@
 
 .dv-footer {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  align-items: baseline;
   padding: 6px 12px;
   font-size: 11px;
   color: #8a93a4;
   border-top: 1px solid #1c212b;
-  gap: 8px;
+  gap: 4px 12px;
 }
 .dv-cite {
   font-style: italic;
+  margin-left: auto; /* push citation to the right edge when there's room */
+}
+.dv-jd-readout {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  color: #c9d0db;
 }
 
 .dv-controls {

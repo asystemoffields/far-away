@@ -69,11 +69,14 @@ interface AttrConfig {
 
 class DamitViewerElement extends HTMLElement {
   static get observedAttributes(): string[] {
+    // Display-only attributes (`name`, `initial-lc-index`, `initial-view`)
+    // are intentionally excluded: changing them shouldn't trigger a
+    // full data reload + pole-fit. They are still consumed at mount
+    // time via #readAttrs().
     return [
       'shape-url', 'lc-url', 'model-id', 'asteroid-id', 'damit-base',
       'pole-lambda', 'pole-beta', 'period-hours', 'jd0',
-      'refit-pole', 'lambert-c', 'name',
-      'initial-lc-index', 'initial-view',
+      'refit-pole', 'lambert-c',
     ];
   }
 
@@ -115,6 +118,11 @@ class DamitViewerElement extends HTMLElement {
   }
 
   disconnectedCallback(): void {
+    // Bump the generation counter so any in-flight #reload — including
+    // its synchronous fitPoleAndPhase block — discards its result
+    // instead of mounting a fresh widget on a now-detached host (which
+    // would leak a WebGL context per reconnect cycle).
+    this.#loadGen++;
     if (this.#handle) {
       this.#handle.dispose();
       this.#handle = undefined;
@@ -123,9 +131,10 @@ class DamitViewerElement extends HTMLElement {
 
   attributeChangedCallback(_name: string, oldVal: string | null, newVal: string | null): void {
     if (oldVal === newVal) return;
-    // Re-load on any attribute change. Cheap enough for a one-off load; if
-    // multiple attributes change in one tick the generation counter
-    // collapses them into one reload.
+    // Re-load on any observed (data-affecting) attribute change. The
+    // observedAttributes list deliberately excludes display-only
+    // attributes like `name` — changing those takes effect on the next
+    // mount, not via an expensive reload + pole-fit.
     if (this.isConnected) void this.#reload();
   }
 
@@ -236,7 +245,11 @@ class DamitViewerElement extends HTMLElement {
         };
         fitRms = fit.rms;
       }
-      if (gen !== this.#loadGen) return;
+      // Final gate before mount: bail if the element was disconnected or
+      // a fresher reload superseded us during the fit. Without this guard,
+      // mount() runs on a detached host and starts a rAF loop that leaks
+      // a WebGL context until garbage collection.
+      if (gen !== this.#loadGen || !this.isConnected) return;
 
       const model: AsteroidModel = {
         name: cfg.name ?? (cfg.modelId !== undefined ? `DAMIT #${cfg.modelId}` : 'Asteroid'),
@@ -250,11 +263,6 @@ class DamitViewerElement extends HTMLElement {
       };
       // Tear down any prior mount before installing the new one.
       if (this.#handle) this.#handle.dispose();
-      // Mount into the shadow-root host so styles stay isolated from the
-      // surrounding page (the widget still injects its own stylesheet via
-      // document.head; for now that means the page-level rules apply, but
-      // because everything is scoped to .damit-viewer-host descendants
-      // there's no leakage into the rest of the host page).
       this.#handle = mount(this.#host, model, {
         initialLightCurveIndex: cfg.initialLcIndex ?? 0,
         initialViewMode: cfg.initialView ?? 'free',
@@ -264,7 +272,12 @@ class DamitViewerElement extends HTMLElement {
       if (gen !== this.#loadGen) return;
       const msg = (err as Error).message;
       const hint = urls.assumedPattern
-        ? ' (The model-id form assumes /asteroid_models/files/obj/<id>.obj and /asteroid_models/lc/<id>.txt; if your DAMIT instance uses a different path, set shape-src and lc-src explicitly.)'
+        ? ' (The model-id / asteroid-id form assumes ' +
+          '<damit-base>/generated_files/open/AsteroidModel/<model-id>/shape.obj ' +
+          'and <damit-base>/light_curves/exportAllForAsteroid/<asteroid-id>/json. ' +
+          'If your DAMIT instance uses a different path or this fetch is ' +
+          'CORS-blocked, set shape-url and lc-url explicitly to same-origin ' +
+          'URLs your page can fetch.)'
         : '';
       this.#showStatus(`error: ${msg}${hint}`);
     }
@@ -280,14 +293,23 @@ class DamitViewerElement extends HTMLElement {
   }
 }
 
+/** Distinguish a Wavefront .obj from a DAMIT shape.txt. The two clear
+ *  signals: an OBJ has at least one `v <float> <float> <float>` line in
+ *  its prelude, while a DAMIT shape.txt's first non-blank line is two
+ *  integers ("nVerts nFaces"). Common .obj prologue lines like `o name`,
+ *  `g group`, `mtllib …`, `usemtl …`, `s 1` are NOT decisive on their
+ *  own — we have to scan past them and look for a real vertex line. */
 function looksLikeObj(text: string): boolean {
-  // Wavefront .obj starts with `v ` or `vn ` or `#` comment lines, then
-  // has `f ` faces. DAMIT shape.txt starts with two integers on line 1.
-  const firstLines = text.slice(0, 200).split(/\r?\n/).slice(0, 10);
-  for (const line of firstLines) {
+  const lines = text.slice(0, 2000).split(/\r?\n/).slice(0, 40);
+  for (const line of lines) {
     const t = line.trim();
     if (t.length === 0 || t.startsWith('#')) continue;
-    if (/^v\s/.test(t) || /^vn\s/.test(t) || /^vt\s/.test(t)) return true;
+    // Decisive: a vertex / vertex-normal / vertex-texture line is OBJ.
+    if (/^v[ \t]/.test(t) || /^vn[ \t]/.test(t) || /^vt[ \t]/.test(t)) return true;
+    // OBJ prologue markers — neutral, keep scanning.
+    if (/^(o|g|s|mtllib|usemtl)[ \t]/.test(t)) continue;
+    // First non-prologue, non-vertex line: this is a shape.txt header
+    // (two integers) OR something unknown; either way, not OBJ.
     return false;
   }
   return false;

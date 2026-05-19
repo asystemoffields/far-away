@@ -62,8 +62,26 @@ html, body {
   padding: 5px 8px;
   font: inherit;
   margin-left: 6px;
-  min-width: 360px;
-  max-width: 100%;
+  /* On wide viewports we want the picker to be readable (~480 px);
+     on narrow viewports we MUST let it shrink, otherwise its widest
+     option pins the whole page to >540 px and the plot scrolls off
+     the side. min-width:0 + max-width via the container does both. */
+  width: 100%;
+  min-width: 0;
+  max-width: 480px;
+}
+
+@media (max-width: 720px) {
+  .demo-controls {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .demo-controls label {
+    width: 100%;
+  }
+  .demo-controls select {
+    max-width: 100%;
+  }
 }
 
 .demo-status {

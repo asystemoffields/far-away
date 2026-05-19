@@ -138,8 +138,13 @@ export function fitPoleAndPhase(
   const refRad  = options.refineRadius ?? 15;
   const maxObs  = options.maxObsPerCurve ?? 80;
 
-  const sampled = curves.map((c) => subsample(c, maxObs));
-  if (sampled.length === 0 || sampled[0]!.points.length === 0) {
+  // Filter empty curves up-front so the score / tmpModel loops never see
+  // a `points.length === 0` case. (Audit P2 — the previous guard only
+  // covered the first curve.) Subsample what survives.
+  const sampled = curves
+    .filter((c) => c.points.length > 0)
+    .map((c) => subsample(c, maxObs));
+  if (sampled.length === 0) {
     return { poleLambdaDeg: baseSpin.poleLambdaDeg, poleBetaDeg: baseSpin.poleBetaDeg, jd0: baseSpin.jd0, rms: Infinity };
   }
   const periodDays = baseSpin.periodHours / 24;
@@ -234,13 +239,29 @@ export function fitPoleAndPhase(
     return { rms: bestRms, jd0: tRef + bestPhaseFrac * periodDays };
   };
 
-  // Coarse grid.
   let best = {
     lambda: baseSpin.poleLambdaDeg,
     beta: baseSpin.poleBetaDeg,
     jd0: baseSpin.jd0,
     rms: Infinity,
   };
+
+  // Explicit seed candidates: the published pole and its (λ + 180°, −β)
+  // sibling — the well-known photometric pole ambiguity. A coarse grid
+  // at 15° resolution can land in a different basin than a narrow RMS
+  // minimum at the published pole, so we always score those two exactly
+  // before the grid sweep. If either gives a better fit than anything
+  // the grid finds, the refinement starts from there.
+  const seedCandidates = [
+    { lam: wrap360(baseSpin.poleLambdaDeg), bet: clampBeta(baseSpin.poleBetaDeg) },
+    { lam: wrap360(baseSpin.poleLambdaDeg + 180), bet: clampBeta(-baseSpin.poleBetaDeg) },
+  ];
+  for (const seed of seedCandidates) {
+    const s = score(seed.lam, seed.bet);
+    if (s.rms < best.rms) best = { lambda: seed.lam, beta: seed.bet, jd0: s.jd0, rms: s.rms };
+  }
+
+  // Coarse grid sweep over the whole sphere.
   for (let lam = 0; lam < 360; lam += lamStep) {
     for (let bet = -75; bet <= 75; bet += betStep) {
       const s = score(lam, bet);
@@ -252,7 +273,7 @@ export function fitPoleAndPhase(
   for (let dlam = -refRad; dlam <= refRad; dlam += refStep) {
     for (let dbet = -refRad; dbet <= refRad; dbet += refStep) {
       const lam = wrap360(best.lambda + dlam);
-      const bet = Math.max(-89, Math.min(89, best.beta + dbet));
+      const bet = clampBeta(best.beta + dbet);
       const s = score(lam, bet);
       if (s.rms < best.rms) best = { lambda: lam, beta: bet, jd0: s.jd0, rms: s.rms };
     }
@@ -295,6 +316,10 @@ function wrap360(x: number): number {
   let r = x % 360;
   if (r < 0) r += 360;
   return r;
+}
+
+function clampBeta(b: number): number {
+  return Math.max(-89, Math.min(89, b));
 }
 
 /** Search for the JD0 offset that minimises the scaled-residual RMS for a

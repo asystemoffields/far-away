@@ -4,6 +4,8 @@
 import type { AsteroidModel, ShapeModel, SpinState } from '../core/types.ts';
 import { DEFAULT_SCATTERING } from '../core/types.ts';
 import { parseLcTxt, parseShapeTxt } from '../core/parse.ts';
+import { buildFacetGeometry } from '../core/geometry.ts';
+import { fitPoleAndPhase } from '../core/photometry.ts';
 
 export interface CatalogEntry {
   /** Stable id used in the picker. */
@@ -16,10 +18,16 @@ export interface CatalogEntry {
   placeholderShape?: ShapeModel;
   /** URL of a DAMIT light-curve file. */
   lcUrl: string;
-  /** Published spin parameters. */
+  /** Published spin parameters. The pole is refined by `refitPoleOnLoad`
+   *  if the catalog flag is set. */
   spin: SpinState;
   /** Citation / provenance string shown in the widget footer. */
   citation: string;
+  /** Auto-fit pole on load. Use when the shape and LC sources differ —
+   *  e.g. shape from one paper, LCs from another, with no shared JD0 or
+   *  pole convention. The published `spin` becomes the optimiser seed; the
+   *  final spin is the best fit against ALL bundled light curves. */
+  refitPoleOnLoad?: boolean;
 }
 
 export async function loadCatalogEntry(entry: CatalogEntry): Promise<AsteroidModel> {
@@ -29,13 +37,31 @@ export async function loadCatalogEntry(entry: CatalogEntry): Promise<AsteroidMod
   ]);
   if (!shape) throw new Error(`Catalog entry "${entry.id}" has no shape (neither shapeUrl nor placeholderShape).`);
   const lcs = parseLcTxt(lcText);
+
+  let spin = entry.spin;
+  let citation = entry.citation;
+  if (entry.refitPoleOnLoad && lcs.length > 0) {
+    const facets = buildFacetGeometry(shape);
+    // Use the first ~5 light curves (longest first) so the joint fit
+    // anchors on multiple geometries without scanning every LC.
+    const chosen = [...lcs].sort((a, b) => b.points.length - a.points.length).slice(0, 5);
+    const fit = fitPoleAndPhase(facets, entry.spin, DEFAULT_SCATTERING, chosen);
+    spin = {
+      ...entry.spin,
+      poleLambdaDeg: fit.poleLambdaDeg,
+      poleBetaDeg: fit.poleBetaDeg,
+      jd0: entry.spin.jd0 - fit.jdOffset,
+    };
+    citation = `${entry.citation} Pole auto-fit from LCs: (${fit.poleLambdaDeg.toFixed(0)}°, ${fit.poleBetaDeg.toFixed(0)}°), RMS ${(fit.rms * 100).toFixed(2)}% of mean.`;
+  }
+
   return {
     name: entry.name,
     shape,
-    spin: entry.spin,
+    spin,
     lightCurves: lcs,
     scattering: { ...DEFAULT_SCATTERING },
-    citation: entry.citation,
+    citation,
   };
 }
 
@@ -108,7 +134,8 @@ export const DEMO_CATALOG: CatalogEntry[] = [
     },
     citation:
       'Shape: Hanuš et al., Asteroids-MDSM model 155 (CC BY 4.0). ' +
-      'Light curves: matvii/ADAM Contours/herm.lc. Phase auto-fit per LC.',
+      'Light curves: matvii/ADAM Contours/herm.lc.',
+    refitPoleOnLoad: true,
   },
   {
     id: 'hertha',

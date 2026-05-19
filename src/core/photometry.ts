@@ -101,6 +101,184 @@ export function rmsResidual(
   return Math.sqrt(s / n);
 }
 
+/** Joint coarse-then-fine grid search for the pole (λ, β) that minimises
+ *  light-curve residuals, given a published shape and a set of observed
+ *  curves. Per-pole inner step is `fitPhaseOffset` so the absolute zero-
+ *  rotation epoch is recovered too. Use this when the published shape and
+ *  the LC file come from different inversion runs (different conventions
+ *  for pole / JD0) and the on-disk pole gives a poor fit — the optimiser
+ *  recovers the pole *self-consistent with the shape*.
+ *
+ *  Cost is roughly (n_poles × n_phase_samples × n_obs × n_facets); for the
+ *  bundled Hermione (~2k facets, ~1k obs across LCs) the default settings
+ *  take well under a second in modern browsers. To bound work for very
+ *  rich light-curve sets, pass a subset of curves in `curves`. */
+export function fitPoleAndPhase(
+  facets: FacetGeometry,
+  baseSpin: SpinState,
+  scattering: ScatteringParams,
+  curves: LightCurve[],
+  options: {
+    coarseLambdaStep?: number; // degrees
+    coarseBetaStep?: number;   // degrees
+    refineStep?: number;       // degrees
+    refineRadius?: number;     // degrees
+    /** Max observations to keep per curve when scoring; uniformly sub-sampled. */
+    maxObsPerCurve?: number;
+  } = {},
+): { poleLambdaDeg: number; poleBetaDeg: number; jdOffset: number; rms: number } {
+  const lamStep = options.coarseLambdaStep ?? 15;
+  const betStep = options.coarseBetaStep ?? 15;
+  const refStep = options.refineStep ?? 3;
+  const refRad  = options.refineRadius ?? 15;
+  const maxObs  = options.maxObsPerCurve ?? 80;
+
+  const sampled = curves.map((c) => subsample(c, maxObs));
+
+  const periodDays = baseSpin.periodHours / 24;
+  // Per (lambda, beta), the dominant cost is computing brightness for
+  // every (phi, observation) pair. We exploit two things:
+  //  1. The Sun/Earth geometry within a single light curve is nearly
+  //     constant (hours), so we precompute one "model curve" as a
+  //     function of phi at each pole, sampled on a coarse phi grid.
+  //  2. Phase fitting then reduces to wrapping & cross-correlating that
+  //     coarse model curve against the observed intensities, sampled by
+  //     interpolating into the phi grid by JD.
+  const phiSamples = 64;
+  const tmpModel = new Float64Array(phiSamples);
+  const score = (lambdaDeg: number, betaDeg: number): { rms: number; offset: number } => {
+    const spin: SpinState = { ...baseSpin, poleLambdaDeg: lambdaDeg, poleBetaDeg: betaDeg };
+    let sumW = 0;
+    let sumSq = 0;
+    let firstOffset = 0;
+    for (let lcIdx = 0; lcIdx < sampled.length; lcIdx++) {
+      const lc = sampled[lcIdx]!;
+      const mean = curveMean(lc);
+      if (mean <= 0) continue;
+
+      // Sample brightness at uniform phi over one rotation. The asteroid-
+      // centric Sun/Earth at the LC's midpoint are a fine fixed geometry
+      // for a session of a few hours.
+      const midObs = lc.points[Math.floor(lc.points.length / 2)]!;
+      const tCenter = midObs.jd;
+      for (let i = 0; i < phiSamples; i++) {
+        // Shift JD by enough to set phi(jd) = i/phiSamples * 2π.
+        const phi = (i / phiSamples) * 2 * Math.PI;
+        // Choose jd so that phi(jd) = phi at the current pole.
+        const jd = tCenter + (phi / (2 * Math.PI)) * periodDays;
+        tmpModel[i] = predictBrightness(facets, { ...spin, jd0: tCenter }, scattering, {
+          jd, intensity: 0, sun: midObs.sun, earth: midObs.earth,
+        });
+      }
+
+      // Find phi shift that best aligns model to observed. For each
+      // candidate shift in [0, 1) of period, compute scaled-residual RMS
+      // and pick the minimum.
+      const phaseShifts = phiSamples;
+      let bestShiftRms = Infinity;
+      let bestShiftOff = 0;
+      for (let s = 0; s < phaseShifts; s++) {
+        const shiftFraction = s / phaseShifts;
+        // For each observation, compute the model brightness as
+        // model[ (phi_obs/2π - shiftFraction) mod 1 × phiSamples ]
+        // then find optimal scale and resulting RMS.
+        let num = 0, den = 0;
+        for (let k = 0; k < lc.points.length; k++) {
+          const p = lc.points[k]!;
+          const phiObs = ((p.jd - tCenter) / periodDays) % 1;
+          let frac = (phiObs - shiftFraction) % 1;
+          if (frac < 0) frac += 1;
+          const m = sampleWrapped(tmpModel, frac);
+          num += m * p.intensity;
+          den += m * m;
+        }
+        if (den <= 0) continue;
+        const scale = num / den;
+        let sse = 0;
+        for (let k = 0; k < lc.points.length; k++) {
+          const p = lc.points[k]!;
+          const phiObs = ((p.jd - tCenter) / periodDays) % 1;
+          let frac = (phiObs - shiftFraction) % 1;
+          if (frac < 0) frac += 1;
+          const m = sampleWrapped(tmpModel, frac) * scale;
+          const d = m - p.intensity;
+          sse += d * d;
+        }
+        const rms = Math.sqrt(sse / lc.points.length);
+        if (rms < bestShiftRms) {
+          bestShiftRms = rms;
+          // jdOffset = shiftFraction × periodDays (with sign consistent
+          // with fitPhaseOffset's existing convention).
+          bestShiftOff = shiftFraction * periodDays;
+        }
+      }
+      const w = lc.points.length * mean;
+      sumW += w;
+      sumSq += w * (bestShiftRms / mean) ** 2;
+      if (lcIdx === 0) firstOffset = bestShiftOff;
+    }
+    const rms = Math.sqrt(sumSq / Math.max(sumW, 1e-12));
+    return { rms, offset: firstOffset };
+  };
+
+  // Coarse grid.
+  let best = { lambda: baseSpin.poleLambdaDeg, beta: baseSpin.poleBetaDeg, rms: Infinity, offset: 0 };
+  for (let lam = 0; lam < 360; lam += lamStep) {
+    for (let bet = -75; bet <= 75; bet += betStep) {
+      const s = score(lam, bet);
+      if (s.rms < best.rms) best = { lambda: lam, beta: bet, rms: s.rms, offset: s.offset };
+    }
+  }
+
+  // Refine on a fine grid centred on the coarse winner.
+  for (let dlam = -refRad; dlam <= refRad; dlam += refStep) {
+    for (let dbet = -refRad; dbet <= refRad; dbet += refStep) {
+      const lam = wrap360(best.lambda + dlam);
+      const bet = Math.max(-89, Math.min(89, best.beta + dbet));
+      const s = score(lam, bet);
+      if (s.rms < best.rms) best = { lambda: lam, beta: bet, rms: s.rms, offset: s.offset };
+    }
+  }
+
+  return {
+    poleLambdaDeg: best.lambda,
+    poleBetaDeg: best.beta,
+    jdOffset: best.offset,
+    rms: best.rms,
+  };
+}
+
+function subsample(curve: LightCurve, maxN: number): LightCurve {
+  if (curve.points.length <= maxN) return curve;
+  const stride = curve.points.length / maxN;
+  const pts: LightCurve['points'] = [];
+  for (let k = 0; k < maxN; k++) pts.push(curve.points[Math.floor(k * stride)]!);
+  return { ...curve, points: pts };
+}
+
+function sampleWrapped(arr: Float64Array, frac: number): number {
+  // Linear interpolate a wrap-around table at frac ∈ [0, 1).
+  const n = arr.length;
+  const f = frac * n;
+  const i0 = Math.floor(f) % n;
+  const i1 = (i0 + 1) % n;
+  const t = f - Math.floor(f);
+  return (arr[i0]! ?? 0) * (1 - t) + (arr[i1]! ?? 0) * t;
+}
+
+function curveMean(curve: LightCurve): number {
+  if (curve.points.length === 0) return 1;
+  let s = 0;
+  for (let i = 0; i < curve.points.length; i++) s += curve.points[i]!.intensity;
+  return s / curve.points.length;
+}
+
+function wrap360(x: number): number {
+  let r = x % 360;
+  if (r < 0) r += 360;
+  return r;
+}
+
 /** Search for the JD0 offset that minimises the scaled-residual RMS for a
  *  given curve. The model is periodic in P, so we sweep φ ∈ [0, 2π) on a
  *  coarse grid, then refine with a golden-section search around the best

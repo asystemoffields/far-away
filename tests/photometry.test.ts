@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildFacetGeometry } from '../src/core/geometry.ts';
 import {
+  fitPoleAndPhase,
   leastSquaresScale,
   predictBrightness,
   predictCurve,
@@ -175,6 +176,50 @@ describe('leastSquaresScale & predictCurve', () => {
     }
     const k = leastSquaresScale(predicted, lc.points);
     expect(Math.abs(k - trueScale) / trueScale).toBeLessThan(1e-6);
+  });
+});
+
+describe('fitPoleAndPhase — drives residuals to the noise floor on synthetic data', () => {
+  it('with a single curve from a known pole, finds a pole that fits at <1% RMS', () => {
+    // Plant a known pole, synthesise an LC with that pole, then ask the
+    // optimiser (seeded far from truth) to recover ANY pole that gives a
+    // tight fit. A brick has multiple symmetries (axis swaps, 180° flips),
+    // so several poles produce the same light curve at this geometry —
+    // recovering one of them is sufficient to demonstrate the optimiser
+    // works. The headline assertion is the residual, not the pole angle.
+    const shape = brick(4, 2, 1); // asymmetric, breaks the y↔z swap symmetry
+    const facets = buildFacetGeometry(shape);
+    const truePole = { poleLambdaDeg: 78, poleBetaDeg: 25 };
+    const truth: SpinState = { ...truePole, periodHours: 6, jd0: 2451545 };
+    const sun = { x: -0.95, y: -0.31, z: 0.06 };
+    const earth = { x: -1.75, y: -0.34, z: 0.04 };
+
+    const pts = [];
+    for (let i = 0; i < 64; i++) {
+      const jd = truth.jd0 + (i / 63) * (truth.periodHours / 24);
+      const intensity = predictBrightness(facets, truth, { lambertWeight: 0.1 }, {
+        jd, intensity: 0, sun, earth,
+      });
+      pts.push({ jd, intensity, sun, earth });
+    }
+    const lc: LightCurve = { id: 1, calibrated: false, points: pts };
+
+    const seed: SpinState = {
+      poleLambdaDeg: 0,
+      poleBetaDeg: -45,
+      periodHours: truth.periodHours,
+      jd0: truth.jd0,
+    };
+    const fit = fitPoleAndPhase(facets, seed, { lambertWeight: 0.1 }, [lc], {
+      coarseLambdaStep: 20,
+      coarseBetaStep: 20,
+      refineStep: 3,
+      refineRadius: 15,
+    });
+
+    // The synthetic curve has no noise, so fit residual should be tiny.
+    const meanIntensity = pts.reduce((a, p) => a + p.intensity, 0) / pts.length;
+    expect(fit.rms / meanIntensity).toBeLessThan(0.01);
   });
 });
 

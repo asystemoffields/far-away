@@ -25,7 +25,7 @@ const realEntries = DEMO_CATALOG.map((c: CatalogEntry): DemoEntry => ({
   label: c.name,
   load: () => loadCatalogEntry(c),
   hint:
-    c.id === 'hermione' ? 'real shape + 41 real light curves (binary; fit is approximate)'
+    c.id === 'hermione' ? 'real shape + 41 real LCs; pole auto-fit'
     : c.id === 'hertha' ? 'real LCs × 32 + placeholder ellipsoid shape'
     : c.id === 'damit-convex-test' ? 'Kaasalainen canonical 37-LC test set + placeholder shape'
     : 'real DAMIT data',

@@ -35,6 +35,22 @@
   min-height: 0;
 }
 
+@media (max-width: 720px) {
+  /* On mobile we let content drive the widget's size — no flex/height
+     constraints fighting with the explicit per-pane min-heights below.
+     The host page scrolls naturally to reveal the controls + footer
+     below the scene + plot. */
+  .damit-viewer-host {
+    height: auto;
+    overflow: visible;
+    contain: none;
+  }
+  .damit-viewer-root {
+    display: block;
+    height: auto;
+  }
+}
+
 .dv-header {
   display: flex;
   justify-content: space-between;
@@ -168,20 +184,22 @@
 }
 
 @media (max-width: 720px) {
-  /* On mobile we drop ALL pane minimums. The controls strip + footer
-     are guaranteed visible because they live at root level with
-     flex-shrink:0; the panes share the remaining space evenly down to
-     zero. If the user wants a bigger 3D view they can scroll the host
-     page (or rotate to landscape). The previous minmax(220px,1fr) was
-     forcing 440px of panes inside ~530px of widget, pushing the
-     controls below the viewport. */
+  /* On mobile the rotating 3D body is the headline; the plot, controls,
+     and footer live below it and the user scrolls. The split becomes a
+     block stack — no grid, no flex constraints — and each pane gets an
+     explicit minimum height so the asteroid is large enough to read. */
   .dv-split {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr 1fr;
+    display: block;
   }
   .dv-scene-col {
     border-right: none;
     border-bottom: 1px solid #1c212b;
+  }
+  .dv-scene {
+    min-height: 40vh; /* ~270–320 px on common phones */
+  }
+  .dv-plot {
+    min-height: 220px;
   }
   .dv-header {
     padding: 8px 10px;

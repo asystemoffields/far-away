@@ -76,8 +76,15 @@ html, body {
 
 @media (max-width: 720px) {
   #app {
+    display: block; /* natural flow; the widget sizes to its content */
     padding: 12px 12px 8px;
-    gap: 10px;
+  }
+  #app > * { margin-bottom: 10px; }
+  .demo-host {
+    flex: none;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
   }
   .demo-header h1 {
     font-size: 18px;

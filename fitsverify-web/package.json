@@ -1,0 +1,26 @@
+{
+  "name": "fitsverify-wasm",
+  "version": "0.1.0",
+  "description": "NASA/HEASARC fitsverify (via libfitsverify) compiled to WebAssembly — validate FITS files for standards conformance entirely in the browser or Node, with no upload and no install.",
+  "type": "module",
+  "license": "BSD-3-Clause",
+  "keywords": ["fits", "fitsverify", "astronomy", "wasm", "webassembly", "cfitsio", "validation"],
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./dist/fitsverify.mjs": "./dist/fitsverify.mjs",
+    "./dist/fitsverify.wasm": "./dist/fitsverify.wasm"
+  },
+  "files": ["src", "dist", "build.sh", "README.md"],
+  "scripts": {
+    "build:wasm": "bash build.sh",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.3",
+    "vitest": "^1.6.0"
+  }
+}

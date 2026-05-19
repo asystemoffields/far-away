@@ -1,6 +1,8 @@
 node_modules
-dist
-dist-widget
+# Root-anchored so they only ignore the DAMIT viewer's build output, not
+# fitsverify-web/dist (whose committed .wasm is a shipped artifact).
+/dist
+/dist-widget
 .DS_Store
 *.log
 .vite

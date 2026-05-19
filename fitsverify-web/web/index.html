@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FITS verifier — validate FITS files in your browser</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: #0b0d12; color: #e7eaf2;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+      main { max-width: 860px; margin: 0 auto; padding: 28px 22px 64px; }
+      h1 { font-size: 24px; margin: 0 0 6px; font-weight: 650; }
+      .tagline { color: #9aa3b2; font-size: 14px; line-height: 1.5; margin: 0 0 4px; }
+      .privacy { color: #7cc7ff; font-size: 13px; margin: 10px 0 22px; display: inline-flex; gap: 7px; align-items: center; }
+      .privacy::before { content: "🔒"; }
+      #drop {
+        border: 2px dashed #2c3442; border-radius: 12px; padding: 44px 24px; text-align: center;
+        background: #11141b; transition: border-color .15s, background .15s; cursor: pointer;
+      }
+      #drop.hot { border-color: #ffc14f; background: #161a22; }
+      #drop p { margin: 6px 0; color: #c1c7d3; }
+      #drop .big { font-size: 16px; font-weight: 600; color: #e7eaf2; }
+      #drop .sub { font-size: 12.5px; color: #8a93a4; }
+      input[type=file] { display: none; }
+      .samples { margin-top: 14px; font-size: 12.5px; color: #8a93a4; }
+      .samples button {
+        background: #1b2230; color: #c9d0db; border: 1px solid #2a313d; border-radius: 5px;
+        padding: 3px 9px; margin: 0 3px; cursor: pointer; font: inherit; font-size: 12px;
+      }
+      .samples button:hover { background: #232c3d; }
+      #result { margin-top: 26px; }
+      .verdict { display: flex; align-items: baseline; gap: 12px; padding: 14px 16px; border-radius: 10px; margin-bottom: 14px; }
+      .verdict.valid   { background: #10241a; border: 1px solid #1f6f43; }
+      .verdict.warn    { background: #271f0d; border: 1px solid #7a5a1f; }
+      .verdict.invalid { background: #2a1416; border: 1px solid #7a2630; }
+      .verdict .icon { font-size: 22px; }
+      .verdict .label { font-size: 17px; font-weight: 650; }
+      .verdict .counts { color: #9aa3b2; font-size: 13px; font-variant-numeric: tabular-nums; }
+      .msg { padding: 9px 12px; border-radius: 7px; margin: 6px 0; font-size: 13px; line-height: 1.45;
+        border-left: 3px solid #444; background: #11141b; }
+      .msg.error, .msg.severe { border-left-color: #ff6b6b; }
+      .msg.warning { border-left-color: #ffc14f; }
+      .msg .head { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #9aa3b2; margin-bottom: 2px; }
+      .msg .text { color: #e7eaf2; white-space: pre-wrap; word-break: break-word; }
+      .msg .hint { color: #7cc7ff; font-size: 12px; margin-top: 4px; }
+      .fname { font-family: ui-monospace, Menlo, monospace; color: #ffc14f; }
+      footer { margin-top: 40px; font-size: 11.5px; color: #8a93a4; border-top: 1px solid #1c212b; padding-top: 12px; line-height: 1.6; }
+      footer a { color: #ffc14f; text-decoration: none; } footer a:hover { text-decoration: underline; }
+      .opts { margin-top: 16px; font-size: 13px; color: #9aa3b2; display: flex; gap: 18px; flex-wrap: wrap; }
+      .opts label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+      .spin { color: #9aa3b2; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>FITS verifier</h1>
+      <p class="tagline">
+        Check whether a FITS file conforms to the
+        <a href="https://fits.gsfc.nasa.gov/fits_standard.html" style="color:#7cc7ff">FITS Standard</a>.
+        This runs NASA/HEASARC's <code>fitsverify</code> — the reference validation
+        tool since 1994 — compiled to WebAssembly via
+        <a href="https://github.com/demitri/fitsverify" style="color:#7cc7ff">libfitsverify</a>.
+        Same checks as the canonical tool, byte-for-byte.
+      </p>
+      <span class="privacy">Your file never leaves this page — validation runs entirely in your browser.</span>
+
+      <div id="drop" tabindex="0" role="button" aria-label="Drop a FITS file here or click to choose one">
+        <p class="big">Drop a FITS file here</p>
+        <p class="sub">or click to choose · <span id="ver">loading validator…</span></p>
+      </div>
+      <input type="file" id="file" accept=".fits,.fit,.fts,.fits.gz,application/fits" />
+
+      <div class="opts">
+        <label><input type="checkbox" id="optHints" checked /> fix hints</label>
+        <label><input type="checkbox" id="optExplain" /> explanations</label>
+        <label><input type="checkbox" id="optCsum" /> verify checksums</label>
+      </div>
+
+      <div class="samples">
+        Try a sample:
+        <button data-s="valid_multi_ext.fits">valid (3 HDUs)</button>
+        <button data-s="err_bad_bitpix.fits">bad BITPIX</button>
+        <button data-s="err_dup_extname.fits">duplicate EXTNAME</button>
+        <button data-s="err_many_errors.fits">many errors</button>
+      </div>
+
+      <div id="result"></div>
+
+      <footer>
+        <div>
+          Powered by
+          <a href="https://heasarc.gsfc.nasa.gov/docs/software/ftools/fitsverify/">HEASARC fitsverify</a>
+          +
+          <a href="https://github.com/HEASARC/cfitsio">CFITSIO</a>,
+          wrapped as the reentrant
+          <a href="https://github.com/demitri/fitsverify">libfitsverify</a> (BSD-3) by Demitri Muna,
+          compiled to WebAssembly. CFITSIO is NASA-licensed; libfitsverify is BSD-3.
+        </div>
+        <div>~210 KB gzip · no backend · works offline once loaded · source on
+          <a href="https://github.com/asystemoffields/far-away/tree/main/fitsverify-web">GitHub</a></div>
+      </footer>
+    </main>
+
+    <script type="module">
+      // The demo loads the WASM glue directly and implements the small verify
+      // call inline (the npm package's TS API in ../src/index.ts is the same
+      // logic; the demo stays build-free so it deploys as static files).
+      import factory from '../dist/fitsverify.mjs';
+
+      const verEl = document.getElementById('ver');
+      const drop = document.getElementById('drop');
+      const fileInput = document.getElementById('file');
+      const resultEl = document.getElementById('result');
+
+      let Module = null;
+      const ready = factory().then((m) => {
+        Module = m;
+        const vp = m.ccall('fv_lib_version', 'number', [], []);
+        verEl.textContent = 'libfitsverify ' + m.UTF8ToString(vp) + ' (WASM)';
+      });
+
+      function verify(bytes, label) {
+        let mask = 0;
+        if (document.getElementById('optHints').checked) mask |= 0x1;
+        if (document.getElementById('optExplain').checked) mask |= 0x2;
+        if (document.getElementById('optCsum').checked) mask |= 0x4;
+        const ptr = Module._malloc(bytes.length || 1);
+        Module.HEAPU8.set(bytes, ptr);
+        const rp = Module.ccall('fv_verify_blob', 'number',
+          ['number', 'number', 'string', 'number'], [ptr, bytes.length, label, mask]);
+        const json = Module.UTF8ToString(rp);
+        Module._fv_free(rp); Module._free(ptr);
+        return JSON.parse(json);
+      }
+
+      function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+      function render(report, label) {
+        const valid = report.ok;
+        // FITS conformance = zero errors; warnings are advisory. Show three
+        // states: green (clean), amber (conformant but with warnings), red.
+        const state = !valid ? 'invalid' : report.numWarnings > 0 ? 'warn' : 'valid';
+        const icon = state === 'valid' ? '✅' : state === 'warn' ? '⚠️' : '❌';
+        const label0 = state === 'valid' ? 'Conformant'
+          : state === 'warn' ? 'Conformant — with warnings' : 'Not conformant';
+        const parts = [];
+        parts.push(`<div class="verdict ${state}">
+          <span class="icon">${icon}</span>
+          <div>
+            <div class="label">${label0} — <span class="fname">${esc(label)}</span></div>
+            <div class="counts">${report.numErrors} error(s) · ${report.numWarnings} warning(s) · ${report.numHdus} HDU(s)${report.aborted ? ' · verification aborted' : ''} · libfitsverify ${esc(report.version)}</div>
+          </div></div>`);
+        if (report.messages.length === 0 && valid) {
+          parts.push(`<p class="spin">No standards violations found.</p>`);
+        }
+        for (const m of report.messages) {
+          parts.push(`<div class="msg ${m.severity}">
+            <div class="head">${m.severity}${m.code ? ' · code ' + m.code : ''}${m.hdu ? ' · HDU ' + m.hdu : ''}</div>
+            <div class="text">${esc(m.text)}</div>
+            ${m.fixHint ? `<div class="hint">→ ${esc(m.fixHint)}</div>` : ''}
+            ${m.explain ? `<div class="hint">${esc(m.explain)}</div>` : ''}
+          </div>`);
+        }
+        resultEl.innerHTML = parts.join('');
+      }
+
+      async function handleBytes(bytes, label) {
+        resultEl.innerHTML = '<p class="spin">Verifying…</p>';
+        await ready;
+        try {
+          render(verify(bytes, label), label);
+        } catch (e) {
+          resultEl.innerHTML = `<div class="verdict invalid"><span class="icon">⚠️</span><div class="label">Error: ${esc(e.message)}</div></div>`;
+        }
+      }
+
+      async function handleFile(file) {
+        handleBytes(new Uint8Array(await file.arrayBuffer()), file.name);
+      }
+
+      drop.addEventListener('click', () => fileInput.click());
+      drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
+      fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
+      ['dragenter', 'dragover'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('hot'); }));
+      ['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove('hot'); }));
+      drop.addEventListener('drop', (e) => { const f = e.dataTransfer.files[0]; if (f) handleFile(f); });
+
+      document.querySelectorAll('.samples button').forEach((b) => {
+        b.addEventListener('click', async () => {
+          const name = b.dataset.s;
+          const resp = await fetch('./samples/' + name);
+          handleBytes(new Uint8Array(await resp.arrayBuffer()), name);
+        });
+      });
+    </script>
+  </body>
+</html>

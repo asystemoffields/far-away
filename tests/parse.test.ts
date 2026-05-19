@@ -125,4 +125,37 @@ describe('parseLcJson', () => {
     const curves = parseLcJson(data);
     expect(curves[0]!.calibrated).toBe(true);
   });
+
+  it('parses the canonical DAMIT lc.json schema (scale + x_sun keys)', () => {
+    // Shape mirrors what DAMIT's /light_curves/exportAllForAsteroid/<id>/json
+    // returns: array of curves with `scale` (0/1), `points` of objects
+    // with `JD`, `brightness`, `x_sun`, `y_sun`, `z_sun`, `x_earth`,
+    // `y_earth`, `z_earth`.
+    const data = [
+      {
+        id: 1,
+        scale: 0,
+        points_count: 1,
+        points: [
+          { JD: 2451545.0, brightness: 1.0,
+            x_sun: -1, y_sun: 0, z_sun: 0,
+            x_earth: -2, y_earth: 0, z_earth: 0 },
+        ],
+      },
+      {
+        id: 2,
+        scale: 1,
+        points: [
+          { JD: 2451600.0, brightness: 0.5,
+            x_sun: 0, y_sun: -1, z_sun: 0,
+            x_earth: 0, y_earth: -2, z_earth: 0 },
+        ],
+      },
+    ];
+    const curves = parseLcJson(data);
+    expect(curves[0]!.calibrated).toBe(false);
+    expect(curves[1]!.calibrated).toBe(true);
+    expect(curves[0]!.points[0]!.sun).toEqual({ x: -1, y: 0, z: 0 });
+    expect(curves[1]!.points[0]!.earth).toEqual({ x: 0, y: -2, z: 0 });
+  });
 });

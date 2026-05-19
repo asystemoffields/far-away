@@ -209,7 +209,13 @@ function parseLcJsonCurve(raw: unknown, fallbackId: number): LightCurve {
   }
   const c = raw as Record<string, unknown>;
   const id = num(c['id']) ?? num(c['lc_id']) ?? fallbackId;
-  const calibrated = toBool(c['calibrated']) ?? toBool(c['absolute']) ?? false;
+  // DAMIT canonical schema uses `scale: 0/1` (0 = relative, 1 = calibrated).
+  // Older variants used `calibrated: bool` or `absolute: bool`.
+  const calibrated =
+    toBool(c['calibrated'])
+    ?? toBool(c['absolute'])
+    ?? (typeof c['scale'] === 'number' ? c['scale'] !== 0 : undefined)
+    ?? false;
   const pts = c['points'] ?? c['data'] ?? c['observations'];
   if (!Array.isArray(pts)) {
     throw new Error(`lc.json curve #${id}: missing points/data array.`);
@@ -234,8 +240,16 @@ function parseLcJsonPoint(raw: unknown, lcId: number, rowIdx: number): LightCurv
   const jd = num(p['jd']) ?? num(p['JD']) ?? num(p['epoch']);
   const intensity =
     num(p['brightness']) ?? num(p['intensity']) ?? num(p['flux']) ?? num(p['mag']);
-  const sun = vec3(p['sun']) ?? vec3FromKeys(p, 'sun_x', 'sun_y', 'sun_z');
-  const earth = vec3(p['earth']) ?? vec3FromKeys(p, 'earth_x', 'earth_y', 'earth_z');
+  // DAMIT canonical lc.json (post-2020): top-level point object uses
+  // `x_sun`, `y_sun`, `z_sun`, `x_earth`, `y_earth`, `z_earth`. We also
+  // accept the older `sun: {x,y,z}` shape and the `sun_x` variant so this
+  // parser tolerates schema drift.
+  const sun = vec3(p['sun'])
+    ?? vec3FromKeys(p, 'x_sun', 'y_sun', 'z_sun')
+    ?? vec3FromKeys(p, 'sun_x', 'sun_y', 'sun_z');
+  const earth = vec3(p['earth'])
+    ?? vec3FromKeys(p, 'x_earth', 'y_earth', 'z_earth')
+    ?? vec3FromKeys(p, 'earth_x', 'earth_y', 'earth_z');
   if (jd === undefined || intensity === undefined || !sun || !earth) {
     throw new Error(
       `lc.json LC ${lcId} row ${rowIdx}: missing required jd/intensity/sun/earth fields.`,

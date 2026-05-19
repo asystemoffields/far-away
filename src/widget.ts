@@ -458,10 +458,11 @@ export function mount(
  *  means embedders who server-side-render or lazy-load the widget don't
  *  hit Flash-of-Unstyled-Content at parse time, and we only pay the cost
  *  when a viewer is actually instantiated. */
-let stylesInjected = false;
+let stylesInjectedIntoDocument = false;
+const stylesInjectedInto = new WeakSet<ShadowRoot>();
 function injectStylesOnce(): void {
-  if (stylesInjected) return;
-  stylesInjected = true;
+  if (stylesInjectedIntoDocument) return;
+  stylesInjectedIntoDocument = true;
   if (typeof document === 'undefined') return;
   const style = document.createElement('style');
   style.setAttribute('data-damit-viewer', '');
@@ -473,6 +474,24 @@ function injectStylesOnce(): void {
     document.head.insertBefore(style, document.head.firstChild);
   } else {
     document.head.appendChild(style);
+  }
+}
+
+/** Inject the widget's stylesheet into a Shadow DOM root. Required for
+ *  the <damit-viewer> Custom Element: document.head styles do not pierce
+ *  shadow boundaries, so anything mounted inside a closed/open shadow
+ *  root needs its own copy of the rules. Idempotent per root. */
+export function injectStylesIntoShadow(root: ShadowRoot): void {
+  if (stylesInjectedInto.has(root)) return;
+  stylesInjectedInto.add(root);
+  const style = document.createElement('style');
+  style.setAttribute('data-damit-viewer', '');
+  style.textContent = uplotCss + '\n' + widgetCss;
+  // Insert at the start so the root's later children can override on ties.
+  if (root.firstChild) {
+    root.insertBefore(style, root.firstChild);
+  } else {
+    root.appendChild(style);
   }
 }
 

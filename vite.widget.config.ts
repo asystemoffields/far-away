@@ -14,7 +14,7 @@ export default defineConfig({
     sourcemap: process.env.SOURCEMAPS === '1',
     cssCodeSplit: false,
     lib: {
-      entry: resolve(__dirname, 'src/widget.ts'),
+      entry: resolve(__dirname, 'src/bundle.ts'),
       name: 'DAMITViewer',
       fileName: (format) => `damit-viewer.${format}.js`,
       formats: ['es', 'umd'],

@@ -4,6 +4,8 @@
 //
 // Run from the project root:
 //   node scripts/perf-bench.mjs
+//
+// Numbers vary by CPU; ratios are what to watch.
 import { readFileSync } from 'node:fs';
 import { parseShapeTxt, parseLcTxt } from '../src/core/parse.ts';
 import { buildFacetGeometry } from '../src/core/geometry.ts';

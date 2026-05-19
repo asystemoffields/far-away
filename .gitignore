@@ -5,3 +5,9 @@ dist-widget
 *.log
 .vite
 coverage
+*.tsbuildinfo
+playwright-report
+test-results
+.env
+.env.local
+/tmp/

@@ -10,8 +10,10 @@ const out = process.argv[3] ?? '/tmp/demo.png';
 const pickerValue = process.argv[4]; // optional: change asteroid via #picker
 const waitMs = Number(process.argv[5] ?? 2500);
 
+// CHROMIUM env var overrides the auto-detect; useful for sandboxes where
+// Playwright's bundled browser is at a non-standard location.
 const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+  executablePath: process.env.CHROMIUM || undefined,
   args: ['--no-sandbox', '--disable-dev-shm-usage'],
 });
 const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });

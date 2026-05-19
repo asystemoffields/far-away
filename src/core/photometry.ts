@@ -281,7 +281,7 @@ function sampleWrapped(arr: Float64Array, frac: number): number {
   const i0 = Math.floor(f) % n;
   const i1 = (i0 + 1) % n;
   const t = f - Math.floor(f);
-  return (arr[i0]! ?? 0) * (1 - t) + (arr[i1]! ?? 0) * t;
+  return arr[i0]! * (1 - t) + arr[i1]! * t;
 }
 
 function curveMean(curve: LightCurve): number {

@@ -79,6 +79,17 @@ describe('parseLcTxt', () => {
   it('rejects a curve header without two tokens', () => {
     expect(() => parseLcTxt('1\nbroken\n1 1 1 1 1 1 1 1\n')).toThrow(/header/);
   });
+
+  it('rejects non-finite values in observation rows (no silent NaN propagation)', () => {
+    // A stray non-numeric token in column 2 would silently produce a NaN
+    // intensity and corrupt the downstream fit; the parser must catch it.
+    const text = [
+      '1',
+      '1 0',
+      '2451545.0 NaN -1 0 0 -1 0 0',
+    ].join('\n');
+    expect(() => parseLcTxt(text)).toThrow(/non-finite/);
+  });
 });
 
 describe('parseLcJson', () => {
